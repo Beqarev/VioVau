@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure game rules. Must never reference Godot. -->
+  <PropertyGroup>
+    <RootNamespace>VioVau.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

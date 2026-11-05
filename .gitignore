@@ -1,0 +1,18 @@
+# Godot
+.godot/
+*.translation
+export_presets.cfg
+/build/
+
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store

@@ -1,0 +1,32 @@
+; Engine configuration file.
+; Godot 4.7 (.NET build)
+
+config_version=5
+
+[application]
+
+config/name="Violet Vaults"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=480
+window/size/viewport_height=270
+window/size/window_width_override=1440
+window/size/window_height_override=810
+window/stretch/mode="viewport"
+window/stretch/scale_mode="integer"
+
+[dotnet]
+
+project/assembly_name="VioVau"
+project/solution_directory="../"
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.051, 0.027, 0.086, 1)
