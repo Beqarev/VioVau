@@ -23,6 +23,14 @@ Inspired by *Clank!* (shared danger, individual greed, noise attribution), with 
 - Strict palette: deep purples, void black, stark white. White is reserved for value and danger (loot, Relics, Threat spikes, enemy tells).
 - Sound is a mechanic: noisy actions should *sound* loud; Threat tiers change the ambient layer.
 
+### 3b. Implemented (Look pass 1)
+- **Mixed resolution:** the game is designed at 480×270 (pixel sprites, one room per screen) but rendered at the window's real resolution (`stretch/mode = canvas_items`, integer scaling). Pixel art stays crisp and blocky; text, lights, particles and camera motion are smooth.
+- **Lighting:** the vault is dark (`CanvasModulate`) and gets darker as Threat rises, shuddering during the Collapse. Each player carries a flickering **lantern** whose light is blocked by walls (real shadows); it dims while Hushed or downed. Amethyst crystals glow violet, Relics shine white and breathe, keys and loot bags glint, the Lobby circle glows (white and pulsing during the Collapse). Sentries show glinting eyes in the dark (brighter in the wind-up, gone when facing away).
+- **Feedback:** sparkle bursts and floating "+Np" on chests, key and relic bursts, door-unlock runes, hit bursts + screen shake for the hit player, violet mist when a Sentry is destroyed, a column of light on escape, sprint dust, ambient dust in rooms on screen.
+- **Camera** slides between rooms instead of cutting.
+- **Menu:** atmospheric background, Play solo / Host / Join (6s timeout with a clear message) / Quit, a players-at-this-machine panel that becomes the lobby.
+- Still to come (Look pass 2): 3/4 wall faces and props per room type, a pixel font, sound and music.
+
 ## 4. Run Structure
 
 ```

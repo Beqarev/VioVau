@@ -6,8 +6,8 @@ using VioVau.Game.Networking;
 namespace VioVau.Game.UI;
 
 /// <summary>
-/// Title + lobby. Local players join with their device's button, then you Host or Join.
-/// Placeholder UI built in code; the real Hub replaces it in M6.
+/// Title screen and lobby. Left: what to do (Play solo / Host / Join / Quit). Right: who's at this machine,
+/// or — once connected — the lobby. Local players join with their device's button.
 ///
 /// Dev command-line args (after <c>--</c>): <c>--name=X --host --start-at=N --join=IP --arrows --wasd</c>.
 /// </summary>
@@ -16,11 +16,12 @@ public partial class MainMenu : Control
     private static bool _commandLineHandled;
     private static string _lastAddress = "127.0.0.1";
     private int _autoStartAt;
+    private bool _soloPending;
 
     private NetSession _net = null!;
     private LineEdit _name = null!, _address = null!;
-    private Button _host = null!, _join = null!, _start = null!, _leave = null!, _reset = null!;
-    private Label _local = null!, _lobby = null!, _status = null!;
+    private Button _solo = null!, _host = null!, _join = null!, _start = null!, _leave = null!, _reset = null!, _quit = null!;
+    private Label _panelTitle = null!, _panelBody = null!, _status = null!;
 
     public override void _Ready()
     {
@@ -33,6 +34,16 @@ public partial class MainMenu : Control
 
         Refresh();
         Callable.From(HandleCommandLine).CallDeferred(); // never change scenes while this one is still being built
+
+        if (OS.GetCmdlineUserArgs().Contains("--menu-shot"))
+        {
+            // Dev: screenshot the menu (into --screenshot-dir) after it has settled.
+            GetTree().CreateTimer(1.5).Timeout += () =>
+            {
+                DirAccess.MakeDirRecursiveAbsolute(Dev.DevOptions.ScreenshotDir);
+                GetViewport().GetTexture().GetImage().SavePng($"{Dev.DevOptions.ScreenshotDir}/menu.png");
+            };
+        }
     }
 
     public override void _ExitTree()
@@ -50,51 +61,101 @@ public partial class MainMenu : Control
             GetViewport().SetInputAsHandled();
     }
 
+    // ── Layout ──────────────────────────────────────────────────────────────
+
     private void Build()
     {
         SetAnchorsPreset(LayoutPreset.FullRect);
-        Theme = new Theme { DefaultFontSize = 10 };
+        Theme = MenuStyle.Create();
+        AddChild(new MenuBackground());
 
-        var background = new ColorRect { Color = Palette.Void };
-        background.SetAnchorsPreset(LayoutPreset.FullRect);
-        AddChild(background);
+        var title = MakeLabel("VIOLET VAULTS", 30, Palette.White);
+        title.Position = new Vector2(24, 18);
+        title.AddThemeColorOverride("font_shadow_color", new Color("6a3fa8"));
+        title.AddThemeConstantOverride("shadow_offset_x", 0);
+        title.AddThemeConstantOverride("shadow_offset_y", 2);
+        AddChild(title);
 
-        var margin = new MarginContainer();
-        margin.SetAnchorsPreset(LayoutPreset.FullRect);
-        foreach (var side in new[] { "left", "right", "top", "bottom" })
-            margin.AddThemeConstantOverride($"margin_{side}", 16);
-        AddChild(margin);
+        var tagline = MakeLabel("steal what you can  ·  stay quiet  ·  get out alive", 9, Palette.Dim);
+        tagline.Position = new Vector2(26, 56);
+        AddChild(tagline);
 
+        // Left: actions.
+        var actions = new VBoxContainer { Position = new Vector2(24, 82), CustomMinimumSize = new Vector2(170, 0) };
+        actions.AddThemeConstantOverride("separation", 6);
+        AddChild(actions);
+
+        _solo = MakeButton("Play solo", OnSolo);
+        _host = MakeButton("Host a game", OnHost);
+        _address = new LineEdit { Text = _lastAddress, PlaceholderText = "Host's IP address", CustomMinimumSize = new Vector2(0, 20) };
+        _join = MakeButton("Join a game", OnJoin);
+        _quit = MakeButton("Quit", () => GetTree().Quit());
+        foreach (var c in new Control[] { _solo, _host, _join })
+        {
+            c.CustomMinimumSize = new Vector2(170, 22);
+            actions.AddChild(c);
+        }
+        var joinRow = new HBoxContainer();
+        joinRow.AddThemeConstantOverride("separation", 4);
+        joinRow.AddChild(MakeLabel("IP", 9, Palette.Dim));
+        _address.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        joinRow.AddChild(_address);
+        actions.AddChild(joinRow);
+        _quit.CustomMinimumSize = new Vector2(170, 20);
+        actions.AddChild(_quit);
+
+        // Right: players at this machine / lobby.
+        var panel = new PanelContainer { Position = new Vector2(220, 82), CustomMinimumSize = new Vector2(236, 140) };
+        AddChild(panel);
         var column = new VBoxContainer();
-        column.AddThemeConstantOverride("separation", 5);
-        margin.AddChild(column);
+        column.AddThemeConstantOverride("separation", 4);
+        panel.AddChild(column);
 
-        column.AddChild(MakeLabel("VIOLET VAULTS", 20, Palette.White));
-        column.AddChild(MakeLabel("Join on this machine:  SPACE = WASD (+Shift)   ENTER = Arrows (+.)   (A) = gamepad", 8, Palette.Dim));
+        _panelTitle = MakeLabel("", 11, Palette.White);
+        column.AddChild(_panelTitle);
+        _panelBody = MakeLabel("", 9, Palette.White);
+        _panelBody.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _panelBody.CustomMinimumSize = new Vector2(216, 0);
+        column.AddChild(_panelBody);
 
-        _name = new LineEdit { Text = LocalPlayers.BaseName, PlaceholderText = "Name", MaxLength = 16, CustomMinimumSize = new Vector2(120, 0) };
+        _name = new LineEdit { Text = LocalPlayers.BaseName, PlaceholderText = "Your name", MaxLength = 16 };
         _name.TextChanged += text => LocalPlayers.BaseName = text;
-        column.AddChild(Row(MakeLabel("Name", 10, Palette.Dim), _name));
+        var nameRow = new HBoxContainer();
+        nameRow.AddThemeConstantOverride("separation", 6);
+        nameRow.AddChild(MakeLabel("Name", 9, Palette.Dim));
+        _name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        nameRow.AddChild(_name);
+        column.AddChild(nameRow);
 
-        _local = MakeLabel("", 10, Palette.White);
-        column.AddChild(_local);
-
-        _host = MakeButton("Host", OnHost);
-        _address = new LineEdit { Text = _lastAddress, PlaceholderText = "Host IP", CustomMinimumSize = new Vector2(110, 0) };
-        _join = MakeButton("Join", OnJoin);
-        _reset = MakeButton("Clear local players", LocalPlayers.Clear);
-        column.AddChild(Row(_host, _address, _join, _reset));
-
-        _lobby = MakeLabel("", 10, Palette.White);
-        column.AddChild(_lobby);
-
+        var buttons = new HBoxContainer();
+        buttons.AddThemeConstantOverride("separation", 6);
         _start = MakeButton("Start run", () => _net.StartGame());
         _leave = MakeButton("Leave", () => _net.Leave(returnToMenu: false));
-        column.AddChild(Row(_start, _leave));
+        _reset = MakeButton("Clear players", LocalPlayers.Clear);
+        buttons.AddChild(_start);
+        buttons.AddChild(_leave);
+        buttons.AddChild(_reset);
+        column.AddChild(buttons);
 
-        _status = MakeLabel("", 8, Palette.Accent);
+        _status = MakeLabel("", 9, Palette.Accent);
+        _status.Position = new Vector2(24, 228);
+        _status.CustomMinimumSize = new Vector2(432, 0);
         _status.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        column.AddChild(_status);
+        AddChild(_status);
+
+        var controls = MakeLabel("Move WASD / arrows / stick   ·   Sprint Shift / . / RB   ·   Interact E / / / A   ·   Cards 1-3 / K L ; / X Y B", 7, Palette.Wall);
+        controls.Position = new Vector2(24, 246);
+        AddChild(controls);
+    }
+
+    // ── Actions ─────────────────────────────────────────────────────────────
+
+    /// <summary>Host with nobody else and start right away.</summary>
+    private void OnSolo()
+    {
+        if (!_net.Host(Dev.DevOptions.Port)) return;
+        _soloPending = true;
+        Callable.From(() => { if (_soloPending) _net.StartGame(); }).CallDeferred();
     }
 
     private void OnHost()
@@ -124,23 +185,32 @@ public partial class MainMenu : Control
     {
         bool connected = _net.IsOnline;
 
+        _solo.Disabled = connected;
         _host.Disabled = connected;
         _join.Disabled = connected;
         _address.Editable = !connected;
         _name.Editable = !connected;
-        _reset.Disabled = connected || LocalPlayers.Devices.Count == 0;
+        _reset.Visible = !connected && LocalPlayers.Devices.Count > 0;
         _start.Visible = _net.IsHost;
         _start.Disabled = _net.Roster.Count == 0;
-        _leave.Disabled = !connected;
+        _leave.Visible = connected;
 
-        _local.Text = LocalPlayers.Devices.Count == 0
-            ? "Local players: none yet (Host/Join adds Keyboard WASD)"
-            : "Local players: " + string.Join("   ", LocalPlayers.Devices.Select((d, i) => $"P{i + 1} {d.Label}"));
-
-        _lobby.Text = connected
-            ? $"Lobby ({_net.Roster.Count}/{RunState.MaxPlayers}): " +
-              string.Join(", ", _net.Roster.Select(r => r.PeerId == _net.LocalPeerId ? $"{r.Name} (you)" : r.Name))
-            : "";
+        if (!connected)
+        {
+            _panelTitle.Text = "AT THIS MACHINE";
+            var players = LocalPlayers.Devices.Count == 0
+                ? "Nobody yet — Host / Play solo adds Keyboard WASD.\n"
+                : string.Join("\n", LocalPlayers.Devices.Select((d, i) => $"P{i + 1}   {d.Label}")) + "\n";
+            _panelBody.Text = players + "\nMore players on this machine: press SPACE (WASD), ENTER (arrows) or (A) on a gamepad.";
+        }
+        else
+        {
+            _panelTitle.Text = _net.IsHost ? $"YOUR LOBBY   {_net.Roster.Count}/{RunState.MaxPlayers}" : $"LOBBY   {_net.Roster.Count}/{RunState.MaxPlayers}";
+            _panelBody.Text = _net.Roster.Count == 0
+                ? "Connecting…"
+                : string.Join("\n", _net.Roster.Select((r, i) => $"P{i + 1}   {r.Name}{(r.PeerId == _net.LocalPeerId ? "  (you)" : "")}"))
+                  + (_net.IsHost ? "\n\nFriends join with your IP address. Start when everyone's in." : "\n\nWaiting for the host to start…");
+        }
 
         _status.Text = _net.Status;
     }
@@ -181,16 +251,8 @@ public partial class MainMenu : Control
     private static Button MakeButton(string text, Action onPressed)
     {
         // No keyboard focus: Space/Enter are join keys, not "press the focused button".
-        var button = new Button { Text = text, FocusMode = FocusModeEnum.None };
+        var button = new Button { Text = text, FocusMode = FocusModeEnum.None, Alignment = HorizontalAlignment.Left };
         button.Pressed += onPressed;
         return button;
-    }
-
-    private static HBoxContainer Row(params Control[] children)
-    {
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 6);
-        foreach (var child in children) row.AddChild(child);
-        return row;
     }
 }

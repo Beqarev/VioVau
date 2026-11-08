@@ -29,6 +29,10 @@ dotnet test VioVau.sln
 
 Open `game/project.godot` in Godot and press F5 to run.
 
+## Playing
+
+From the menu: **Play solo**, **Host a game** (friends join with your IP), or **Join a game**. More players on the same machine press `Space` (WASD), `Enter` (arrows) or `A` (gamepad) on the menu before you start.
+
 ## Playing / testing multiplayer
 
 - **Couch:** in the menu, each person presses their join button: `Space` (WASD, Shift sprints), `Enter` (arrows, `.` sprints), or `A` on a gamepad (`B` to leave). Then **Host** → **Start run**.
@@ -60,6 +64,7 @@ Open `game/project.godot` in Godot and press F5 to run.
 | `--brutal` | 1 heart, fast sharp-eyed Sentries, strikes every 8s — to test downed / death / bags quickly |
 | `--seed=N` | Host uses this dungeon seed (reproducible runs) |
 | `--port=N` | Host/join on this UDP port instead of 7777 |
+| `--menu-shot` | Screenshot the menu into `--screenshot-dir` (dev) |
 | `--auto-rematch` | Host starts the next run 3s after the scoreboard |
 | `--autopilot` | This machine's first player plays by itself: loots chests, grabs keys, unlocks Vaults (key or Lockpick), takes Library/Merchant cards, plays a card every few seconds, sprints everywhere |
 | `--screenshot-at=2,8 --screenshot-dir=PATH` | Save screenshots at those seconds into the run |

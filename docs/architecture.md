@@ -96,7 +96,9 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
 - **Input:** devices are polled directly (`InputDevice`: Keyboard WASD, Keyboard Arrows, Gamepad N) instead of the global InputMap, so several local players can share one machine. `LocalPlayers` holds this machine's slot → device mapping.
 - **Signals** are for view-side wiring. Core uses plain C# events; a `Session` adapter turns Core events into Godot signals for the UI.
 - **Rooms** are hand-made scenes (`RoomTemplate`) with exit sockets N/E/S/W, spawn markers, and loot markers. The generator picks templates by room type; Godot instances them.
-- **Camera:** one room per screen. Local players in the same room share a view; when they split up, the screen splits (`SplitScreen`: SubViewports sharing the main World2D, inside a CanvasLayer).
+- **Camera:** one room per screen. Local players in the same room share a view; when they split up, the screen splits (`SplitScreen`: SubViewports sharing the main World2D, inside a CanvasLayer). Each view renders at the window's pixel resolution (design size × integer scale) and is shown through a `TextureRect`, so lights and effects stay smooth; cameras slide between rooms and can shake.
+- **Rendering:** design resolution 480×270 with `stretch/mode = canvas_items` + integer scaling. HUD and menus are in CanvasLayers (unaffected by world lighting).
+- **Lighting & effects:** `Lights` (shared radial texture, light factory, `Unshaded` material for world-space labels/rings, ambient-by-tier colour), `LightOccluder2D`s built with each room's walls, `Fx` (one-shot `CPUParticles2D` bursts that free themselves, looping room/sprint dust).
 
 ## 8. Data
 
@@ -154,6 +156,7 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 | M3 ✅ | Cards | Decks, hand of 3, draw rules, 12 cards |
 | M4 ✅ | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
 | M5 ✅ | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |
+| L1 ✅ | Look pass 1 | Hi-res rendering, lighting & shadows, particles, camera slides, new menu |
 | M6 | Hub & meta | Lobby hub, profiles, passive cards, saves |
 | M7 | Content | More rooms, cards, enemies, floors |
 | M8 | Look & feel | Pixel art, palette, audio, juice |

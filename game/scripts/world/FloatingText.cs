@@ -18,6 +18,7 @@ public partial class FloatingText : Node2D
         _text = text;
         _color = color;
         ZIndex = 30;
+        Material = Lights.Unshaded;
         return this;
     }
 

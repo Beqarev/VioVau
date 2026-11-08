@@ -46,8 +46,23 @@ public partial class LootNode : Node2D
         return this;
     }
 
+    private PointLight2D? _glow;
+
     public override void _Ready()
     {
+        // Treasure that matters glows (white = value).
+        _glow = Item.Kind switch
+        {
+            LootKind.Relic => Lights.Point(80f, Lights.Bone, 0.9f),
+            LootKind.Key => Lights.Point(22f, Lights.Bone, 0.55f),
+            LootKind.Bag => Lights.Point(20f, Lights.Bone, 0.4f),
+            _ => null,
+        };
+        if (_glow is not null)
+        {
+            _glow.Position = new Vector2(0, -8);
+            AddChild(_glow);
+        }
         _closed = TryLoad(_fancy ? "chest_vault_closed" : "chest_closed");
         _open = TryLoad(_fancy ? "chest_vault_open" : "chest_open");
         _key = TryLoad("key");
@@ -59,14 +74,16 @@ public partial class LootNode : Node2D
     public void Refresh()
     {
         if (Item.Kind is LootKind.Key or LootKind.Bag or LootKind.Relic && Item.Claimed) Visible = false;
+        if (Item.Claimed && _glow is not null) _glow.Enabled = false;
         SetProcess(Item.Kind is LootKind.Key or LootKind.Bag or LootKind.Relic && !Item.Claimed);
         QueueRedraw();
     }
 
     public override void _Process(double delta)
     {
-        // Keys bob gently so they catch the eye.
+        // Keys bob gently so they catch the eye; the Relic's light breathes.
         _time += delta;
+        if (_glow is not null && Item.Kind == LootKind.Relic) _glow.Energy = 0.8f + 0.25f * Mathf.Sin((float)_time * 2.5f);
         QueueRedraw();
     }
 

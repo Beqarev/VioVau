@@ -16,6 +16,7 @@ public partial class NoiseRing : Node2D
         Position = position;
         _maxRadius = 10f + (float)Math.Min(amount, 12) * 5f;
         ZIndex = 20;
+        Material = Lights.Unshaded;
         return this;
     }
 

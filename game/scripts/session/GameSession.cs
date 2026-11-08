@@ -49,6 +49,7 @@ public partial class GameSession : Node, IEnemyWorld
     private NetSession _net = null!;
     private RunView _view = null!;
     private Node2D _world = null!;
+    private CanvasModulate _ambient = null!;
     private SplitScreen _screens = null!;
     private TierBanner _banner = null!;
     private HandHud _hands = null!;
@@ -100,6 +101,10 @@ public partial class GameSession : Node, IEnemyWorld
     {
         _world = new Node2D { Name = "World" };
         AddChild(_world);
+
+        // Darkness: the vault is lit only by lanterns, crystals and treasure; it gets darker as the Threat rises.
+        _ambient = new CanvasModulate { Color = Lights.Ambient(0, _view.Config.Threat.TierThresholds.Count) };
+        _world.AddChild(_ambient);
 
         foreach (var room in _view.Dungeon.Floors[0].Rooms)
         {
@@ -192,8 +197,14 @@ public partial class GameSession : Node, IEnemyWorld
             rooms.Add(WorldLayout.RoomAt(0, survivor.GlobalPosition));
         if (rooms.Count == 0) rooms.Add(_view.Dungeon.Entrance);
         _screens.ShowRooms(rooms);
+        foreach (var (id, node) in _rooms) node.OnScreen = rooms.Contains(id);
 
         UpdateHighlights();
+
+        var ambient = Lights.Ambient(_view.ThreatTier, _view.Config.Threat.TierThresholds.Count);
+        if (_view.CollapseSeconds is not null && _view.Results is null)
+            ambient = ambient.Lerp(new Color(0.32f, 0.2f, 0.4f), 0.5f + 0.5f * Mathf.Sin((float)_elapsed * 5f)); // the vault shudders
+        _ambient.Color = _ambient.Color.Lerp(ambient, 1f - Mathf.Exp(-3f * (float)delta));
 
         if (_view.Results is not null && _net.IsHost && DevOptions.AutoRematch)
         {
@@ -470,17 +481,27 @@ public partial class GameSession : Node, IEnemyWorld
 
             case ChestOpened opened:
                 GD.Print($"[Game {_elapsed:0.0}s] {opened.Player} opened {opened.Chest} for {opened.Points}p");
-                if (_loot.TryGetValue(opened.Chest, out var chest)) chest.Refresh();
+                if (_loot.TryGetValue(opened.Chest, out var chest))
+                {
+                    chest.Refresh();
+                    Fx.ChestOpened(_world, chest.Position);
+                    _world.AddChild(new FloatingText().Init(chest.Position + new Vector2(0, -16), $"+{opened.Points}p", Palette.White));
+                }
                 break;
 
             case KeyPickedUp picked:
                 GD.Print($"[Game {_elapsed:0.0}s] {picked.Player} picked up key {picked.Key}");
-                if (_loot.TryGetValue(picked.Key, out var key)) key.Refresh();
+                if (_loot.TryGetValue(picked.Key, out var key))
+                {
+                    Fx.KeyTaken(_world, key.Position);
+                    key.Refresh();
+                }
                 break;
 
             case ExitUnlocked unlocked:
                 GD.Print($"[Game {_elapsed:0.0}s] {unlocked.Player} unlocked {unlocked.Side} of {unlocked.Room}");
                 if (_rooms.TryGetValue(unlocked.Room, out var near)) near.RefreshExits();
+                Fx.DoorUnlocked(_world, WorldLayout.DoorCenter(unlocked.Room, unlocked.Side));
                 if (_view.Dungeon.Neighbor(unlocked.Room, unlocked.Side) is { } far && _rooms.TryGetValue(far.Id, out var farNode))
                     farNode.RefreshExits();
                 break;
@@ -511,6 +532,7 @@ public partial class GameSession : Node, IEnemyWorld
 
             case EnemyKilled killed when _enemies.Remove(killed.Enemy, out var corpse):
                 GD.Print($"[Game {_elapsed:0.0}s] {killed.By} destroyed {killed.Enemy}");
+                Fx.EnemyDestroyed(_world, corpse.GlobalPosition);
                 corpse.Die();
                 break;
 
@@ -529,6 +551,8 @@ public partial class GameSession : Node, IEnemyWorld
             case PlayerHit hit when _characters.TryGetValue(hit.Player, out var hurt):
                 GD.Print($"[Game {_elapsed:0.0}s] {hit.Player} hit by {hit.Enemy} → {hit.Hearts} hearts");
                 hurt.ShowHurt(_view.Config.EnemySet.Health.InvulnerableSeconds);
+                Fx.Hit(_world, hurt.GlobalPosition);
+                if (hurt.IsLocal) _screens.Shake(3f);
                 break;
 
             case PlayerDowned downed when _characters.TryGetValue(downed.Player, out var fallen):
@@ -569,7 +593,11 @@ public partial class GameSession : Node, IEnemyWorld
 
             case RelicTaken relic when _characters.TryGetValue(relic.Player, out var lifter):
                 GD.Print($"[Game {_elapsed:0.0}s] {relic.Player} lifted a RELIC worth {relic.Points}p");
-                if (_loot.TryGetValue(relic.Relic, out var relicNode)) relicNode.Refresh();
+                if (_loot.TryGetValue(relic.Relic, out var relicNode))
+                {
+                    Fx.RelicTaken(_world, relicNode.Position);
+                    relicNode.Refresh();
+                }
                 lifter.CarryingRelic = true;
                 _world.AddChild(new FloatingText().Init(lifter.GlobalPosition + new Vector2(0, -28), $"RELIC +{relic.Points}", Palette.White));
                 _screens.Shake(2f);
@@ -578,6 +606,7 @@ public partial class GameSession : Node, IEnemyWorld
             case PlayerExtracted escaped when _characters.TryGetValue(escaped.Player, out var escapee):
                 GD.Print($"[Game {_elapsed:0.0}s] {escaped.Player} ESCAPED with {escaped.Banked}p");
                 _world.AddChild(new FloatingText().Init(escapee.GlobalPosition + new Vector2(0, -22), $"ESCAPED  {escaped.Banked}p", Palette.White));
+                Fx.Escaped(_world, escapee.GlobalPosition);
                 escapee.SetEscaped();
                 break;
 

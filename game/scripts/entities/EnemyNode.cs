@@ -50,6 +50,7 @@ public partial class EnemyNode : CharacterBody2D
     private Vector2 _remoteTarget;
     private int _facing;
     private bool _dying;
+    private PointLight2D _eyes = null!;
 
     public EnemyId Id { get; private set; }
     public EnemyKind Kind { get; private set; }
@@ -80,6 +81,11 @@ public partial class EnemyNode : CharacterBody2D
         CollisionMask = PhysicsLayers.Walls;
         ZIndex = 9;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = Kind == EnemyKind.Warden ? 7f : 5f } });
+
+        // In the dark you see their eyes first.
+        _eyes = Lights.Point(Kind == EnemyKind.Warden ? 26f : 16f, Lights.Bone, 0.6f);
+        _eyes.Position = new Vector2(0, (Kind == EnemyKind.Warden ? -24 : -15));
+        AddChild(_eyes);
 
         if (CharacterSprites.Load(SpriteFolder) is { } art)
         {
@@ -122,6 +128,7 @@ public partial class EnemyNode : CharacterBody2D
     public void Die()
     {
         _dying = true;
+        _eyes.Enabled = false;
         SetPhysicsProcess(false);
         _sprite?.Play($"death_{Facings[_facing]}");
         var tween = CreateTween();
@@ -288,6 +295,8 @@ public partial class EnemyNode : CharacterBody2D
     {
         if (_sprite is null || _dying) return;
         if (velocity.LengthSquared() > 1f) FaceToward(velocity);
+        _eyes.Enabled = _facing != 3; // facing away: no eyes
+        _eyes.Energy = State switch { Mode.Windup => 1.6f, Mode.Stunned => 0.15f, Mode.Run => 0.9f, _ => 0.6f };
 
         string anim = State switch
         {

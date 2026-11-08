@@ -33,6 +33,9 @@ public partial class PlayerCharacter : CharacterBody2D
     private double _hurtTime;
     private AnimatedSprite2D? _sprite;
     private PlayerOverlay _overlay = null!;
+    private PointLight2D _lantern = null!;
+    private CpuParticles2D _dust = null!;
+    private double _flicker;
 
     public PlayerId Id { get; private set; }
     public string DisplayName { get; private set; } = "";
@@ -121,7 +124,17 @@ public partial class PlayerCharacter : CharacterBody2D
         }
 
         _overlay = new PlayerOverlay().Init(ColorIndex, headY);
+        _overlay.Material = Lights.Unshaded;
         AddChild(_overlay);
+
+        // The lantern: the main light in the vault. Walls cast shadows from it.
+        _lantern = Lights.Point(135f, Lights.Lantern, 1.5f, shadows: true);
+        _lantern.Position = new Vector2(0, -6);
+        AddChild(_lantern);
+
+        _dust = Fx.SprintDust();
+        _dust.Position = new Vector2(0, 1);
+        AddChild(_dust);
     }
 
     public override void _PhysicsProcess(double delta)
@@ -164,6 +177,13 @@ public partial class PlayerCharacter : CharacterBody2D
                 ? _remoteTarget
                 : Position.Lerp(_remoteTarget, 1f - Mathf.Exp(-18f * (float)delta));
         }
+
+        _dust.Emitting = IsSprinting && IsActive;
+
+        // Lantern: a gentle flicker; dimmer while Hushed, a faint glow while downed.
+        _flicker += delta;
+        float flicker = 0.94f + 0.04f * Mathf.Sin((float)_flicker * 7.3f) + 0.02f * Mathf.Sin((float)_flicker * 17.1f);
+        _lantern.Energy = (IsDowned ? 0.6f : IsHushed ? 0.8f : 1.5f) * flicker;
 
         if (_hushTime > 0) _hushTime -= delta;
         if (_hurtTime > 0) _hurtTime -= delta;

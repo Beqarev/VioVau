@@ -17,6 +17,19 @@ public partial class RoomNode : Node2D
 
     private bool _collapsing;
     private double _time;
+    private Node2D? _occluders;
+    private PointLight2D? _circleLight;
+    private CpuParticles2D? _dust;
+
+    /// <summary>Ambient dust only runs in rooms someone is looking at.</summary>
+    public bool OnScreen
+    {
+        set
+        {
+            if (_dust is null || _dust.Emitting == (value && _revealed)) return;
+            _dust.Emitting = value && _revealed;
+        }
+    }
 
     /// <summary>Lobby only: once the Collapse starts, the escape circle burns white and pulses.</summary>
     public bool Collapsing
@@ -33,6 +46,12 @@ public partial class RoomNode : Node2D
     public override void _Process(double delta)
     {
         _time += delta;
+        if (_circleLight is not null)
+        {
+            float pulse = 0.5f + 0.5f * Mathf.Sin((float)_time * 6f);
+            _circleLight.Color = Lights.Bone;
+            _circleLight.Energy = 0.7f + 0.5f * pulse;
+        }
         QueueRedraw();
     }
 
@@ -68,7 +87,30 @@ public partial class RoomNode : Node2D
         return this;
     }
 
-    public override void _Ready() => BuildCollision();
+    public override void _Ready()
+    {
+        BuildCollision();
+        AddCrystalLights();
+        _dust = Fx.RoomDust(WorldLayout.RoomSize);
+        AddChild(_dust);
+        if (Room.Type == RoomType.Lobby)
+        {
+            _circleLight = Lights.Point(70f, Lights.Amethyst, 0.55f);
+            _circleLight.Position = WorldLayout.RoomSize / 2f;
+            AddChild(_circleLight);
+        }
+    }
+
+    /// <summary>Each amethyst cluster gives off a little violet light.</summary>
+    private void AddCrystalLights()
+    {
+        foreach (var at in CrystalSpots())
+        {
+            var light = Lights.Point(34f, Lights.Amethyst, 0.75f);
+            light.Position = at + new Vector2(0, -4);
+            AddChild(light);
+        }
+    }
 
     /// <summary>Call after an exit of this room changed (e.g. a door was unlocked).</summary>
     public void RefreshExits()
@@ -81,6 +123,10 @@ public partial class RoomNode : Node2D
 
     private void BuildCollision()
     {
+        _occluders?.QueueFree();
+        _occluders = new Node2D { Name = "Occluders" };
+        AddChild(_occluders);
+
         _walls = new StaticBody2D { Name = "Walls", CollisionLayer = PhysicsLayers.Walls, CollisionMask = 0 };
         foreach (var side in DirectionExtensions.All)
         {
@@ -94,6 +140,14 @@ public partial class RoomNode : Node2D
                 {
                     Shape = new RectangleShape2D { Size = rect.Size },
                     Position = rect.GetCenter(),
+                });
+                // Walls (and locked doors) cast shadows.
+                _occluders.AddChild(new LightOccluder2D
+                {
+                    Occluder = new OccluderPolygon2D
+                    {
+                        Polygon = [rect.Position, new Vector2(rect.End.X, rect.Position.Y), rect.End, new Vector2(rect.Position.X, rect.End.Y)],
+                    },
                 });
             }
         }
@@ -208,6 +262,13 @@ public partial class RoomNode : Node2D
     /// <summary>A few amethyst clusters growing from the wall base, never in front of a doorway.</summary>
     private void DrawCrystals()
     {
+        int i = 0;
+        foreach (var at in CrystalSpots()) DrawCrystal(at, Hash(Room.Id.X, Room.Id.Y, i++, 7));
+    }
+
+    /// <summary>Where this room's crystals grow (the same every time for the same room).</summary>
+    private IEnumerable<Vector2> CrystalSpots()
+    {
         uint h = Hash(Room.Id.X, Room.Id.Y, 99, 99);
         int count = 2 + (int)(h % 3);
         for (int i = 0; i < count; i++)
@@ -217,14 +278,13 @@ public partial class RoomNode : Node2D
             float along = 0.1f + (r / 4 % 1000) / 1000f * 0.8f;
             if (Mathf.Abs(along - 0.5f) < 0.14f) along += 0.2f; // keep door lanes clear
 
-            var at = side switch
+            yield return side switch
             {
                 Direction.North => new Vector2(along * WorldLayout.RoomWidth, WorldLayout.WallThickness + 3),
                 Direction.South => new Vector2(along * WorldLayout.RoomWidth, WorldLayout.RoomHeight - WorldLayout.WallThickness - 1),
                 Direction.West => new Vector2(WorldLayout.WallThickness + 4, along * WorldLayout.RoomHeight),
                 _ => new Vector2(WorldLayout.RoomWidth - WorldLayout.WallThickness - 4, along * WorldLayout.RoomHeight),
             };
-            DrawCrystal(at, r);
         }
     }
 

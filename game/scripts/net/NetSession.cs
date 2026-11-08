@@ -91,8 +91,24 @@ public partial class NetSession : Node
         Multiplayer.ServerDisconnected += OnServerDisconnected;
     }
 
+    private const double JoinTimeoutSeconds = 6;
+    private double? _joinDeadline;
+    private string _joinTarget = "";
+
     public override void _Process(double delta)
     {
+        // Joining gives up quickly instead of waiting on ENet's long default timeout.
+        if (_joinDeadline is { } deadline && !IsHost && IsOnline)
+        {
+            _joinDeadline = deadline - delta;
+            if (_joinDeadline <= 0 && Multiplayer.MultiplayerPeer.GetConnectionStatus() != MultiplayerPeer.ConnectionStatus.Connected)
+            {
+                _joinDeadline = null;
+                Leave(returnToMenu: false);
+                SetStatus($"No game found at {_joinTarget}. Is the host's game open (Host a game), and are you on the same network?");
+            }
+        }
+
         if (!IsHost || State is not { Phase: RunPhase.InRun }) return;
         var events = State.Tick(TimeSpan.FromSeconds(delta));
         if (events.Count > 0) Broadcast(events);
@@ -146,6 +162,8 @@ public partial class NetSession : Node
         IsHost = false;
         LocalPlayers.Locked = true;
         SetStatus($"Connecting to {address}:{port}…");
+        _joinTarget = $"{address}:{port}";
+        _joinDeadline = JoinTimeoutSeconds;
         return true;
     }
 
@@ -322,6 +340,7 @@ public partial class NetSession : Node
 
     private void OnConnectedToServer()
     {
+        _joinDeadline = null;
         SetStatus("Connected. Waiting for the host to start…");
         RpcId(1, MethodName.RequestJoin, LocalPlayers.Names());
     }
