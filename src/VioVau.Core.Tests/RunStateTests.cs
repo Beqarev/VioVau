@@ -74,8 +74,9 @@ public class RunStateTests
         var result = run.Apply(new StartRun());
 
         Assert.True(result.Accepted);
-        var started = Assert.IsType<RunStarted>(Assert.Single(result.Events));
+        var started = Assert.IsType<RunStarted>(result.Events[0]);
         Assert.Equal(77UL, started.Seed);
+        Assert.Equal(new[] { new PlayerInfo(P1, "A") }, started.Players);
         Assert.Equal(RunPhase.InRun, run.Phase);
 
         Assert.False(run.Apply(new JoinPlayer(P2, "Late")).Accepted);

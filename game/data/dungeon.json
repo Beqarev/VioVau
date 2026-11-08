@@ -1,0 +1,16 @@
+{
+  // Floor size in rooms.
+  "width": 6,
+  "height": 6,
+  // Chance to open each extra wall after the maze is carved (creates loops / alternate routes).
+  "extraConnectionChance": 0.2,
+  // Relative weights for filler rooms. Lobby and RelicChamber are placed by the generator.
+  "roomWeights": {
+    "Corridor": 6,
+    "Vault": 3,
+    "GuardPost": 3,
+    "EchoChamber": 1,
+    "HushRoom": 1,
+    "Merchant": 1
+  }
+}

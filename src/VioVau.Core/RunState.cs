@@ -1,3 +1,4 @@
+using VioVau.Core.Dungeon;
 using VioVau.Core.Random;
 
 namespace VioVau.Core;
@@ -11,19 +12,33 @@ public enum RunPhase
 
 public sealed class PlayerState
 {
+    private readonly HashSet<RoomId> _visited = new();
+
     public PlayerId Id { get; }
     public string DisplayName { get; }
+
+    /// <summary>The room the player is in. Only set once the run has started.</summary>
+    public RoomId? Room { get; private set; }
+
+    public IReadOnlySet<RoomId> VisitedRooms => _visited;
 
     public PlayerState(PlayerId id, string displayName)
     {
         Id = id;
         DisplayName = displayName;
     }
+
+    /// <returns>True if this is the player's first visit to the room.</returns>
+    internal bool EnterRoom(RoomId room)
+    {
+        Room = room;
+        return _visited.Add(room);
+    }
 }
 
 /// <summary>
 /// The whole run. The only way to change it is <see cref="Apply"/> (player intents) and
-/// <see cref="Tick"/> (time-based rules). Runs on the host; clients mirror it from events.
+/// <see cref="Tick"/> (time-based rules). Runs on the host; clients follow along with a <see cref="RunView"/>.
 /// </summary>
 public sealed class RunState
 {
@@ -31,17 +46,26 @@ public sealed class RunState
 
     private readonly Dictionary<PlayerId, PlayerState> _players = new();
     private readonly List<PlayerId> _joinOrder = new();
+    private readonly HashSet<RoomId> _revealed = new();
 
     public RngStreams Rng { get; }
+    public DungeonConfig Config { get; }
     public RunPhase Phase { get; private set; } = RunPhase.Lobby;
     public TimeSpan Elapsed { get; private set; } = TimeSpan.Zero;
+
+    /// <summary>Generated when the run starts.</summary>
+    public DungeonMap? Dungeon { get; private set; }
 
     /// <summary>Players in the order they joined.</summary>
     public IReadOnlyList<PlayerState> Players => _joinOrder.Select(id => _players[id]).ToList();
 
-    public RunState(ulong seed)
+    public IReadOnlySet<RoomId> RevealedRooms => _revealed;
+
+    public RunState(ulong seed, DungeonConfig? config = null)
     {
         Rng = new RngStreams(seed);
+        Config = config ?? DungeonConfig.Default;
+        Config.Validate();
     }
 
     public PlayerState? GetPlayer(PlayerId id) => _players.GetValueOrDefault(id);
@@ -51,6 +75,7 @@ public sealed class RunState
         JoinPlayer c => Join(c),
         LeavePlayer c => Leave(c),
         StartRun => Start(),
+        MovePlayerToRoom c => Move(c),
         _ => CommandResult.Reject($"Unknown command {command.GetType().Name}."),
     };
 
@@ -91,7 +116,39 @@ public sealed class RunState
         if (Phase != RunPhase.Lobby) return CommandResult.Reject("The run has already started.");
         if (_players.Count == 0) return CommandResult.Reject("At least one player is needed to start.");
 
+        Dungeon = DungeonGenerator.Generate(Rng.Seed, Config);
         Phase = RunPhase.InRun;
-        return CommandResult.Ok(new RunStarted(Rng.Seed, _joinOrder.ToList()));
+
+        var events = new List<IGameEvent>
+        {
+            new RunStarted(Rng.Seed, Players.Select(p => new PlayerInfo(p.Id, p.DisplayName)).ToList(), Config),
+        };
+        foreach (var player in Players)
+            events.Add(new PlayerEnteredRoom(player.Id, Dungeon.Entrance, player.EnterRoom(Dungeon.Entrance)));
+        events.AddRange(Reveal(Dungeon.Entrance));
+
+        return CommandResult.Ok(events);
+    }
+
+    private CommandResult Move(MovePlayerToRoom c)
+    {
+        if (Phase != RunPhase.InRun || Dungeon is null) return CommandResult.Reject("Players can only move during a run.");
+        if (GetPlayer(c.Player) is not { Room: { } current } player) return CommandResult.Reject($"{c.Player} is not in the run.");
+        if (!Dungeon.Contains(c.Target)) return CommandResult.Reject($"{c.Target} is outside the dungeon.");
+        if (current == c.Target) return CommandResult.Reject($"{c.Player} is already in {c.Target}.");
+
+        if (DirectionExtensions.Between(current, c.Target) is not { } dir)
+            return CommandResult.Reject($"{c.Target} is not adjacent to {current}.");
+        if (!Dungeon.GetRoom(current).IsPassable(dir))
+            return CommandResult.Reject($"The {dir} exit of {current} is not passable.");
+
+        var events = new List<IGameEvent> { new PlayerEnteredRoom(c.Player, c.Target, player.EnterRoom(c.Target)) };
+        events.AddRange(Reveal(c.Target));
+        return CommandResult.Ok(events);
+    }
+
+    private IEnumerable<IGameEvent> Reveal(RoomId room)
+    {
+        if (_revealed.Add(room)) yield return new RoomRevealed(room);
     }
 }

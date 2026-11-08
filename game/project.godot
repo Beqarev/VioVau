@@ -6,9 +6,13 @@ config_version=5
 [application]
 
 config/name="Violet Vaults"
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[autoload]
+
+NetSession="*res://scripts/net/NetSession.cs"
 
 [display]
 
@@ -25,6 +29,8 @@ project/assembly_name="VioVau"
 project/solution_directory="../"
 
 [rendering]
+
+2d/snap/snap_2d_transforms_to_pixel=true
 
 textures/canvas_textures/default_texture_filter=0
 renderer/rendering_method="gl_compatibility"

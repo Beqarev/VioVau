@@ -10,7 +10,7 @@
 | Language | C# 12 / .NET 8 |
 | Tests | xUnit (core rules) |
 | Networking | Godot high-level multiplayer (`ENetMultiplayerPeer`) first; Steam transport later |
-| Data | JSON files in `/data` |
+| Data | JSON files in `game/data` (inside `res://` so they ship with exports) |
 | Targets | Windows, macOS, Linux (desktop). Steam later. No web build (Godot 4 C# web export is not a priority). |
 
 ## 2. Guiding Principles
@@ -55,8 +55,10 @@ Every game-state reference uses `PlayerId`, never peer id. Netcode maps `PlayerI
   - Core events broadcast as compact messages (`ThreatChanged`, `CardDrawn`, `RoomRevealed`, `PlayerDowned`…).
   - Positions of players/enemies via `MultiplayerSynchronizer` (interpolated on remotes).
 - **Prediction:** only for your own player's movement. Everything rule-related waits for the host (card plays get an immediate local "playing…" animation, confirmed or cancelled by the host).
-- **Hidden information:** clients only receive what their players are allowed to know (other players' hands are hidden; unrevealed rooms aren't sent).
-- **Determinism:** the dungeon seed is shared so clients can build room geometry locally, but the host's state is always the truth.
+- **Hidden information:** other players' hands and similar private state are only sent to their owners. The map is the exception: clients regenerate it from the seed, so a modified client could see unrevealed rooms. Acceptable for a co-op game; revisit if competitive stakes grow.
+- **Determinism:** `RunStarted` carries the seed and the `DungeonConfig`; every peer runs `DungeonGenerator` and gets the identical map, so the layout is never sent. The host's state is always the truth.
+- **RunView:** every peer (host included) keeps a `RunView` rebuilt only from events. All visuals read the `RunView`, so host and clients render through the same code path. Only the host also has the `RunState`.
+- **Room changes:** the host watches every character's position; when one crosses into another room's area it applies `MovePlayerToRoom`, which Core validates (adjacent, exit passable).
 
 ## 6. Core (`VioVau.Core`)
 
@@ -77,14 +79,16 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
 
 ## 7. Godot Project (`/game`)
 
-- **Autoloads** (keep few): `Net` (session, peers, player registry), `Session` (holds `RunState` on host / mirrored view on clients), `Profiles` (local meta saves), `Audio`.
+- **Autoloads** (keep few): `NetSession` (connection, roster, `RunState` on host, `RunView` everywhere). Later: `Profiles` (local meta saves), `Audio`.
+- **World layout:** all rooms of a floor sit side by side in world space (one room = 480×270 = one screen). Players walk continuously through door gaps; their room is derived from their position (`WorldLayout.RoomAt`).
+- **Input:** devices are polled directly (`InputDevice`: Keyboard WASD, Keyboard Arrows, Gamepad N) instead of the global InputMap, so several local players can share one machine. `LocalPlayers` holds this machine's slot → device mapping.
 - **Signals** are for view-side wiring. Core uses plain C# events; a `Session` adapter turns Core events into Godot signals for the UI.
 - **Rooms** are hand-made scenes (`RoomTemplate`) with exit sockets N/E/S/W, spawn markers, and loot markers. The generator picks templates by room type; Godot instances them.
-- **Camera:** one room per screen. Local players in the same room share a view; when they split up, the screen splits (SubViewports).
+- **Camera:** one room per screen. Local players in the same room share a view; when they split up, the screen splits (`SplitScreen`: SubViewports sharing the main World2D, inside a CanvasLayer).
 
 ## 8. Data
 
-- `/data/cards.json`, `enemies.json`, `rooms.json`, `threat.json`, `loot_tables.json`, `passives.json`.
+- `game/data/dungeon.json` (now); later `cards.json`, `enemies.json`, `threat.json`, `loot_tables.json`, `passives.json`.
 - Loaded by Core at startup; schema-validated in tests (a broken card file fails CI, not a playtest).
 - Balancing numbers live in data, not code.
 
@@ -107,13 +111,14 @@ VioVau.sln
     /ui                 # HUD, menus, card views, map
     /rooms              # room templates, hub
     /entities           # player, enemies, chests, loot bag
+  /data                 # JSON game data (res://data)
   /scripts
-    /net                # transport, RPC routing, player registry
-    /session            # Core ↔ Godot adapter
-    /entities           # player controller, enemy AI
-    /ui                 # UI controllers (listen only)
-    /input              # device → LocalSlot mapping
-/data                   # JSON game data
+    /net                # NetSession: connection, roster, RPCs
+    /session            # GameSession: in-run scene controller
+    /world              # WorldLayout, RoomNode
+    /entities           # player controller, (later) enemy AI
+    /ui                 # menu, split screen, minimap, palette
+    /input              # InputDevice, LocalPlayers
 /docs
 ```
 
@@ -130,8 +135,8 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 
 | # | Milestone | Done when |
 |---|---|---|
-| M0 | Scaffold | Solution, Core + tests, empty Godot project building together |
-| M1 | Two in a room | 2+ players (online + local) walk around a generated floor and move between rooms |
+| M0 ✅ | Scaffold | Solution, Core + tests, empty Godot project building together |
+| M1 ✅ | Two in a room | 2+ players (online + local) walk around a generated floor and move between rooms |
 | M2 | Noise | Shared Threat, tiers, attribution HUD, loot & chests, keys/locked exits |
 | M3 | Cards | Decks, hand of 3, draw rules, 12 cards |
 | M4 | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
