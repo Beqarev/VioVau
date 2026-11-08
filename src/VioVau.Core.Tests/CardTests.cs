@@ -350,8 +350,8 @@ public class CardTests
         var without = DungeonGenerator.Generate(9, CardDungeon);
         var with = DungeonGenerator.Generate(9, CardDungeon, GameCards);
         Assert.Equal(
-            without.Loot.OrderBy(l => l.Id.Value).Select(l => (l.Id, l.Room, l.Position)),
-            with.Loot.Where(l => l.Kind != LootKind.Card).OrderBy(l => l.Id.Value).Select(l => (l.Id, l.Room, l.Position)));
+            without.Loot.Where(l => l.Kind != LootKind.Relic).OrderBy(l => l.Id.Value).Select(l => (l.Id, l.Room, l.Position)),
+            with.Loot.Where(l => l.Kind is not (LootKind.Card or LootKind.Relic)).OrderBy(l => l.Id.Value).Select(l => (l.Id, l.Room, l.Position)));
         Assert.Equal(without.AllRooms.Select(r => r.Type), with.AllRooms.Select(r => r.Type));
     }
 }

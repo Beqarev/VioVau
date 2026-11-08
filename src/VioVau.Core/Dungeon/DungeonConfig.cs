@@ -30,6 +30,9 @@ public sealed record DungeonConfig
     /// <summary>Chests per room type. Types without a rule get no chests.</summary>
     public Dictionary<RoomType, LootRule> Loot { get; init; } = new();
 
+    /// <summary>Relics in the Relic Chamber, by point value (one per entry).</summary>
+    public List<int> RelicValues { get; init; } = [50, 30];
+
     /// <summary>Keys placed beyond one per locked Vault.</summary>
     public int ExtraKeys { get; init; } = 1;
 
@@ -59,6 +62,8 @@ public sealed record DungeonConfig
         if (RoomWeights.ContainsKey(RoomType.Lobby) || RoomWeights.ContainsKey(RoomType.RelicChamber))
             throw new InvalidDataException("Lobby and RelicChamber are placed by the generator and cannot be weighted.");
         if (ExtraKeys < 0) throw new InvalidDataException("extraKeys cannot be negative.");
+        if (RelicValues.Any(v => v <= 0)) throw new InvalidDataException("relicValues must be positive.");
+        if (RelicValues.Count > 5) throw new InvalidDataException("At most 5 relics.");
         if (LootSpots.Any(p => p.X is < 0 or > 1 || p.Y is < 0 or > 1))
             throw new InvalidDataException("lootSpots must be normalized (0..1).");
 

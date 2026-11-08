@@ -66,6 +66,7 @@ Every game-state reference uses `PlayerId`, never peer id. Netcode maps `PlayerI
 - **Enemies:** Core owns which enemies exist (`EnemySpawned`, `EnemyKilled`), Strikes, the Warden and all health rules. The **host** runs each enemy's AI in Godot (`EnemyNode` + `RoomNavigator` for doorway-to-doorway paths) and reports connecting attacks as `HitPlayer`; clients get positions + animation state ~15×/s (`SendEnemyStates`, unreliable) and only display. `RunView.Enemies` keeps spawn records so a scene loading after the spawn events can still create them.
 - **Physical card effects** (`EnemiesStunned`, `DecoyPlaced`, `MovementEffect`) are events the host AI / owning machine acts on; targets (nearby enemy, downed ally) are chosen by the host.
 - **Reviving** by hand is a 1.5s channel tracked by the host's game scene (progress broadcast for the ring); it ends in a `RevivePlayer` command.
+- **Rematch:** after `RunEnded` the host calls `NetSession.Rematch()`: a fresh `RunState` (new seed, current data files), the roster re-joined in order, `StartRun` broadcast. Every peer reloads the game scene from the new `RunStarted`.
 - **Threat broadcast:** Core emits a `ThreatChanged` snapshot (level, tier, everyone's noise share) every 0.5s from `Tick`, and immediately after discrete noisy actions together with `NoiseMade` (used for the ring effect).
 
 ## 6. Core (`VioVau.Core`)
@@ -76,6 +77,7 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
   ThreatSystem      # meter, tiers, per-player attribution (decaying), periodic snapshots
   Cards             # CardsConfig (data), PlayerDeck (draw / hand slots / discard); RunState.Cards.cs = rules + effects
   Enemies           # EnemiesConfig (spawns, strikes, Warden, health, AI tuning), EnemyState; RunState.Danger.cs = rules
+  Ending            # RunState.Ending.cs: relics, escaping, the Collapse, results (RunEnded carries PlayerResults)
   CardSystem        # decks, hands, discard, draw rules, effect resolution
   Economy           # points (carried/banked), keys, loot bags
   Scoring           # extraction, collapse, results
@@ -151,7 +153,7 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 | M2 ✅ | Noise | Shared Threat, tiers, attribution HUD, loot & chests, keys/locked exits |
 | M3 ✅ | Cards | Decks, hand of 3, draw rules, 12 cards |
 | M4 ✅ | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
-| M5 | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |
+| M5 ✅ | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |
 | M6 | Hub & meta | Lobby hub, profiles, passive cards, saves |
 | M7 | Content | More rooms, cards, enemies, floors |
 | M8 | Look & feel | Pixel art, palette, audio, juice |

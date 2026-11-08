@@ -20,6 +20,10 @@ public enum InteractKind
     Revive,
     /// <summary>A dead player's loot bag; Value = EntityId.</summary>
     Bag,
+    /// <summary>A Relic; Value = EntityId.</summary>
+    Relic,
+    /// <summary>The Lobby's escape circle; Value unused.</summary>
+    Extract,
     /// <summary>A card offer (Library / Merchant); Value = EntityId.</summary>
     Card,
     Door,
@@ -114,22 +118,7 @@ public partial class NetSession : Node
         IsHost = true;
         LocalPlayers.Locked = true;
 
-        var seed = Dev.DevOptions.Seed ?? (ulong)System.Random.Shared.NextInt64();
-        var config = LoadGameConfig();
-        if (Dev.DevOptions.Brutal)
-        {
-            var enemies = config.EnemySet;
-            config = config with
-            {
-                Enemies = enemies with
-                {
-                    Health = enemies.Health with { Hearts = 1, ReviveHearts = 1 },
-                    Sentry = enemies.Sentry with { ChaseSpeed = 150, SightRadius = 220, HearingRadius = 260 },
-                    StrikeIntervals = [8],
-                },
-            };
-        }
-        State = new RunState(seed, config);
+        State = NewRun(Dev.DevOptions.Seed);
 
         var rejection = AddPlayers(LocalPeerId, LocalPlayers.Names());
         if (rejection is not null) GD.PushError($"[Net] Could not add local players: {rejection}");
@@ -178,6 +167,45 @@ public partial class NetSession : Node
         if (hadRoster) RosterChanged?.Invoke();
         if (returnToMenu && GetTree().CurrentScene?.SceneFilePath != MenuScene)
             GetTree().ChangeSceneToFile(MenuScene);
+    }
+
+    private int _runNumber;
+
+    /// <summary>A fresh run with the current data files (and dev overrides). A dev seed is offset per rematch.</summary>
+    private RunState NewRun(ulong? devSeed)
+    {
+        var seed = devSeed is { } s ? s + (ulong)_runNumber : (ulong)System.Random.Shared.NextInt64();
+        _runNumber++;
+
+        var config = LoadGameConfig();
+        if (Dev.DevOptions.Brutal)
+        {
+            var enemies = config.EnemySet;
+            config = config with
+            {
+                Enemies = enemies with
+                {
+                    Health = enemies.Health with { Hearts = 1, ReviveHearts = 1 },
+                    Sentry = enemies.Sentry with { ChaseSpeed = 150, SightRadius = 220, HearingRadius = 260 },
+                    StrikeIntervals = [8],
+                },
+            };
+        }
+        return new RunState(seed, config);
+    }
+
+    /// <summary>Host only: after a run ends, start a new one (new dungeon) with everyone still connected.</summary>
+    public void Rematch()
+    {
+        if (!IsHost || State is not { Phase: RunPhase.Ended }) return;
+        State = NewRun(Dev.DevOptions.Seed);
+        foreach (var entry in _roster)
+        {
+            var result = State.Apply(new JoinPlayer(new PlayerId(entry.PlayerId), entry.Name));
+            if (!result.Accepted) GD.PushError($"[Net] Rematch could not re-add {entry.Name}: {result.RejectionReason}");
+        }
+        SetStatus("Rematch!");
+        StartGame();
     }
 
     /// <summary>Host only: start the run for everyone in the lobby.</summary>

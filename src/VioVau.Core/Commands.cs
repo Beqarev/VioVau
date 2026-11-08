@@ -45,6 +45,9 @@ public interface ICommand;
 [JsonDerivedType(typeof(LootDropped), "lootDropped")]
 [JsonDerivedType(typeof(BagClaimed), "bagClaimed")]
 [JsonDerivedType(typeof(RunEnded), "runEnded")]
+[JsonDerivedType(typeof(RelicTaken), "relicTaken")]
+[JsonDerivedType(typeof(PlayerExtracted), "playerExtracted")]
+[JsonDerivedType(typeof(CollapseStarted), "collapseStarted")]
 public interface IGameEvent;
 
 /// <summary>An event only its owner may see (e.g. which card they drew). The host sends it to that player's machine only.</summary>
@@ -98,6 +101,12 @@ public sealed record RevivePlayer(PlayerId Reviver, PlayerId Target) : ICommand;
 
 /// <summary>Pick up a dead player's loot bag.</summary>
 public sealed record ClaimBag(PlayerId Player, EntityId Bag) : ICommand;
+
+/// <summary>Lift a Relic (one at a time).</summary>
+public sealed record TakeRelic(PlayerId Player, EntityId Relic) : ICommand;
+
+/// <summary>Escape through the Lobby and bank everything carried.</summary>
+public sealed record Extract(PlayerId Player) : ICommand;
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
@@ -189,4 +198,23 @@ public sealed record LootDropped(EntityId Bag, RoomId Room, RoomPoint At, int Po
 
 public sealed record BagClaimed(PlayerId Player, EntityId Bag, int Points, int Keys) : IGameEvent;
 
-public sealed record RunEnded(string Reason) : IGameEvent;
+public enum RunOutcome
+{
+    /// <summary>Escaped and banked their points.</summary>
+    Escaped,
+    /// <summary>Bled out (or went down with nobody left to help).</summary>
+    Fell,
+    /// <summary>Still inside when the vault collapsed.</summary>
+    Sealed,
+}
+
+public sealed record PlayerResult(PlayerId Player, RunOutcome Outcome, int Banked, bool HadRelic, bool Winner);
+
+public sealed record RunEnded(string Reason, IReadOnlyList<PlayerResult> Results) : IGameEvent;
+
+public sealed record RelicTaken(PlayerId Player, EntityId Relic, int Points) : IGameEvent;
+
+public sealed record PlayerExtracted(PlayerId Player, int Banked, bool HadRelic) : IGameEvent;
+
+/// <summary>The vault starts to collapse: everyone still inside after <paramref name="Seconds"/> is lost.</summary>
+public sealed record CollapseStarted(double Seconds, string Reason) : IGameEvent;

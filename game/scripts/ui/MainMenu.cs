@@ -99,14 +99,14 @@ public partial class MainMenu : Control
 
     private void OnHost()
     {
-        _net.Host();
+        _net.Host(Dev.DevOptions.Port);
         Refresh();
     }
 
     private void OnJoin()
     {
         _lastAddress = string.IsNullOrWhiteSpace(_address.Text) ? "127.0.0.1" : _address.Text.Trim();
-        _net.Join(_lastAddress);
+        _net.Join(_lastAddress, Dev.DevOptions.Port);
         Refresh();
     }
 

@@ -44,6 +44,12 @@ Hub (lobby + meta shop) → Descent → Explore / loot / play cards → Grab Rel
 - A player can carry **one Relic** at a time **[TUNE]**.
 - When the **first player extracts**, the **Collapse** begins: a countdown after which anyone still inside dies **[TUNE: 90s]**. This forces the endgame and creates the classic "do I go back for them?" moment.
 
+### 4.2b Implemented (M5)
+- The Relic Chamber holds **2 Relics (50p and 30p)** (`relicValues` in `dungeon.json`). Lifting one: its points join your carried points, **+12 Threat** (`takeRelic`), and a crown shows over your head and in the HUD. One at a time. If you die, its points go into your loot bag.
+- **Escape** by standing in the Lobby's rune circle and pressing Interact: everything carried is **banked** and you're out of the dungeon (you spectate).
+- The **Collapse** starts on the first escape *or* when Threat maxes out: **90s** (`collapseSeconds` in `threat.json`), a countdown at the top, the escape circle burns white. Anyone still inside at zero is **sealed in** and banks nothing.
+- The run ends when nobody is left inside. **Scoreboard**: escaped / fell / sealed in, banked points, relic, and the **winner** (most banked among escapees; ties share). The host presses Enter for a **rematch** (new dungeon, same players).
+
 ### 4.3 Winning
 - Score = Points banked by extracting. Dead players score 0 for the run.
 - Highest score wins the run (bragging rights + a small meta bonus **[OPEN]**).

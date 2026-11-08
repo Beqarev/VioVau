@@ -51,8 +51,14 @@ public partial class PlayerCharacter : CharacterBody2D
 
     public bool IsDead { get; private set; }
 
+    /// <summary>Escaped through the Lobby: out of the dungeon.</summary>
+    public bool IsEscaped { get; private set; }
+
+    /// <summary>Still in the dungeon (not dead, not escaped).</summary>
+    public bool IsInside => !IsDead && !IsEscaped;
+
     /// <summary>Can be seen, hit and targeted.</summary>
-    public bool IsActive => !IsDowned && !IsDead;
+    public bool IsActive => IsInside && !IsDowned;
 
     /// <summary>Best known true position: our own for local players, the last received one for remote players.</summary>
     public Vector2 AuthoritativePosition => IsLocal ? GlobalPosition : _remoteTarget;
@@ -211,9 +217,28 @@ public partial class PlayerCharacter : CharacterBody2D
     {
         IsDead = true;
         IsDowned = false;
+        Leave();
+    }
+
+    /// <summary>Out through the Lobby.</summary>
+    public void SetEscaped()
+    {
+        IsEscaped = true;
+        Leave();
+    }
+
+    private void Leave()
+    {
         Visible = false;
         SetPhysicsProcess(false);
         CollisionLayer = 0;
+    }
+
+    /// <summary>A small white crown floats over Relic carriers so everyone knows who has one.</summary>
+    public bool CarryingRelic
+    {
+        get => _overlay.CarryingRelic;
+        set => _overlay.CarryingRelic = value;
     }
 
     /// <summary>Hush: shown as a faded character while silent (everyone sees it).</summary>

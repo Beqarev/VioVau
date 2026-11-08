@@ -19,6 +19,12 @@ public static class DevOptions
     /// <summary><c>--brutal</c>: 1 heart and fast, sharp-eyed Sentries — for testing downed / death / bags quickly.</summary>
     public static bool Brutal => Args.Contains("--brutal");
 
+    /// <summary><c>--port=N</c>: host/join on this UDP port instead of 7777 (e.g. to test alongside a running game).</summary>
+    public static int Port => int.TryParse(Value("port"), out var port) ? port : Networking.NetSession.DefaultPort;
+
+    /// <summary><c>--auto-rematch</c>: the host starts the next run 3s after the scoreboard appears (tests rematches).</summary>
+    public static bool AutoRematch => Args.Contains("--auto-rematch");
+
     /// <summary><c>--seed=N</c>: the host uses this run seed (reproducible dungeons for testing).</summary>
     public static ulong? Seed => ulong.TryParse(Value("seed"), out var seed) ? seed : null;
 

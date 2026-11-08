@@ -13,6 +13,11 @@
   "pickUpKey": 0,
   "unlockExit": 4,
   "revive": 2,
+  // Lifting a Relic: the dungeon notices its treasure leaving.
+  "takeRelic": 12,
+
+  // The Collapse: starts when the first player escapes (or Threat hits max). Anyone still inside after this is lost.
+  "collapseSeconds": 90,
 
   // Old noise counts less toward "who is loudest" (half as much every N seconds).
   "attributionHalfLifeSeconds": 45,

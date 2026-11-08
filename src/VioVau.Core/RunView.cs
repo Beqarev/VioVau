@@ -25,7 +25,12 @@ public sealed class PlayerView
     public int Hearts { get; internal set; }
     public bool Downed { get; internal set; }
     public bool Dead { get; internal set; }
-    public bool Active => !Downed && !Dead;
+    public bool CarryingRelic { get; internal set; }
+    public bool Extracted { get; internal set; }
+    public int Banked { get; internal set; }
+
+    public bool Inside => !Dead && !Extracted;
+    public bool Active => Inside && !Downed;
 
     /// <summary>Bleed-out time when last downed (the view counts down locally).</summary>
     public double BleedOutSeconds { get; internal set; }
@@ -66,6 +71,13 @@ public sealed class RunView
 
     /// <summary>Set when the run is over.</summary>
     public string? EndReason { get; private set; }
+
+    public IReadOnlyList<PlayerResult>? Results { get; private set; }
+
+    /// <summary>The Collapse's full duration once it has started (views count down locally).</summary>
+    public double? CollapseSeconds { get; private set; }
+
+    public string? CollapseReason { get; private set; }
 
     public double ThreatLevel { get; private set; }
     public int ThreatTier { get; private set; }
@@ -176,6 +188,7 @@ public sealed class RunView
             case PlayerDied died when Player(died.Player) is { } dead:
                 dead.Downed = false;
                 dead.Dead = true;
+                dead.CarryingRelic = false;
                 dead.Hearts = 0;
                 dead.CarriedPoints = 0;
                 dead.Keys = 0;
@@ -196,6 +209,26 @@ public sealed class RunView
 
             case RunEnded ended:
                 EndReason = ended.Reason;
+                Results = ended.Results;
+                break;
+
+            case RelicTaken relic:
+                if (Dungeon.GetLoot(relic.Relic) is { } item) item.Claimed = true;
+                if (Player(relic.Player) is { } carrier)
+                {
+                    carrier.CarryingRelic = true;
+                    carrier.CarriedPoints += relic.Points;
+                }
+                break;
+
+            case PlayerExtracted escaped when Player(escaped.Player) is { } escapee:
+                escapee.Extracted = true;
+                escapee.Banked = escaped.Banked;
+                break;
+
+            case CollapseStarted collapse:
+                CollapseSeconds = collapse.Seconds;
+                CollapseReason = collapse.Reason;
                 break;
         }
     }

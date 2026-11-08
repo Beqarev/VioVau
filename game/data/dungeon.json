@@ -23,6 +23,8 @@
     "EchoChamber": { "minChests": 1, "maxChests": 2, "minPoints": 10, "maxPoints": 20 },
     "HushRoom":    { "minChests": 0, "maxChests": 1, "minPoints": 3,  "maxPoints": 8 }
   },
+  // Relics in the Relic Chamber (the furthest room from the Lobby), by point value.
+  "relicValues": [50, 30],
   // Keys placed beyond one per locked Vault.
   "extraKeys": 1
 }

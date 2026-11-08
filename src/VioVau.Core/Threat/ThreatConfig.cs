@@ -20,6 +20,12 @@ public sealed record ThreatConfig
     public double UnlockExit { get; init; } = 4;
     public double Revive { get; init; } = 2;
 
+    /// <summary>Noise for lifting a Relic: the dungeon notices its treasure leaving.</summary>
+    public double TakeRelic { get; init; } = 12;
+
+    /// <summary>Once the Collapse starts (first escape, or Threat maxed), this long until the vault seals.</summary>
+    public double CollapseSeconds { get; init; } = 90;
+
     /// <summary>How fast old noise stops counting toward a player's share.</summary>
     public double AttributionHalfLifeSeconds { get; init; } = 45;
 
@@ -64,8 +70,9 @@ public sealed record ThreatConfig
                 throw new InvalidDataException("tierThresholds must be strictly ascending.");
         if (TierThresholds[^1] > Max) throw new InvalidDataException("The last tier threshold cannot exceed max.");
         if (TierNames.Count != TierThresholds.Count) throw new InvalidDataException("tierNames must match tierThresholds.");
-        if (new[] { PassivePerSecond, SprintPerSecond, OpenChest, PickUpKey, UnlockExit, Revive }.Any(v => v < 0))
+        if (new[] { PassivePerSecond, SprintPerSecond, OpenChest, PickUpKey, UnlockExit, Revive, TakeRelic }.Any(v => v < 0))
             throw new InvalidDataException("Threat amounts cannot be negative.");
+        if (CollapseSeconds <= 0) throw new InvalidDataException("collapseSeconds must be positive.");
         if (AttributionHalfLifeSeconds <= 0 || BroadcastIntervalSeconds <= 0)
             throw new InvalidDataException("attributionHalfLifeSeconds and broadcastIntervalSeconds must be positive.");
         if (RoomMultipliers.Values.Any(m => m < 0)) throw new InvalidDataException("roomMultipliers cannot be negative.");

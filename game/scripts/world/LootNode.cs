@@ -16,7 +16,7 @@ public partial class LootNode : Node2D
     private bool _highlighted;
     private bool _fancy;
     private double _time;
-    private Texture2D? _closed, _open, _key;
+    private Texture2D? _closed, _open, _key, _relic;
     private CardDefinition? _card;
 
     public LootItem Item { get; private set; } = null!;
@@ -51,14 +51,15 @@ public partial class LootNode : Node2D
         _closed = TryLoad(_fancy ? "chest_vault_closed" : "chest_closed");
         _open = TryLoad(_fancy ? "chest_vault_open" : "chest_open");
         _key = TryLoad("key");
+        _relic = TryLoad("relic_crown");
         Refresh();
     }
 
     /// <summary>Call after the item was claimed.</summary>
     public void Refresh()
     {
-        if (Item.Kind is LootKind.Key or LootKind.Bag && Item.Claimed) Visible = false;
-        SetProcess(Item.Kind is LootKind.Key or LootKind.Bag && !Item.Claimed);
+        if (Item.Kind is LootKind.Key or LootKind.Bag or LootKind.Relic && Item.Claimed) Visible = false;
+        SetProcess(Item.Kind is LootKind.Key or LootKind.Bag or LootKind.Relic && !Item.Claimed);
         QueueRedraw();
     }
 
@@ -77,6 +78,7 @@ public partial class LootNode : Node2D
             case LootKind.Key: DrawKey(); break;
             case LootKind.Card: DrawCardOffer(); break;
             case LootKind.Bag: DrawBag(); break;
+            case LootKind.Relic: DrawRelic(); break;
         }
     }
 
@@ -115,6 +117,39 @@ public partial class LootNode : Node2D
         DrawCircle(Vector2.Zero, 4f, new Color(Palette.Void, 0.5f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         DrawTexture(_key, new Vector2(-size.X / 2f, -size.Y + 1 + bob));
+    }
+
+    /// <summary>The prize: a crown on a pedestal, glowing and slowly bobbing.</summary>
+    private void DrawRelic()
+    {
+        // Pedestal.
+        DrawRect(new Rect2(-8, -2, 16, 6), Palette.Wall);
+        DrawRect(new Rect2(-8, -2, 16, 6), Palette.Void, filled: false, width: 1f);
+        DrawRect(new Rect2(-8, -2, 16, 1), Palette.WallEdge);
+
+        // Glow (white = value).
+        float pulse = 0.5f + 0.5f * Mathf.Sin((float)_time * 2.5f);
+        DrawCircle(new Vector2(0, -10), 11f + pulse * 2f, new Color(Palette.White, 0.06f + 0.06f * pulse));
+        DrawCircle(new Vector2(0, -10), 7f, new Color(Palette.White, 0.08f));
+
+        float bob = Mathf.Round(Mathf.Sin((float)_time * 2f) * 1.5f);
+        if (_relic is not null)
+        {
+            var size = _relic.GetSize();
+            DrawTexture(_relic, new Vector2(-size.X / 2f, -size.Y - 2 + bob));
+        }
+        else
+        {
+            DrawRect(new Rect2(-5, -12 + bob, 10, 6), Palette.White);
+        }
+
+        if (_highlighted)
+        {
+            DrawBrackets(new Rect2(-10, -24, 20, 28));
+            DrawRect(new Rect2(-46, -44, 92, 18), new Color(Palette.Void, 0.9f));
+            DrawString(ThemeDB.FallbackFont, new Vector2(-45, -36), $"RELIC  ·  {Item.Points}p", HorizontalAlignment.Center, 90, 8, Palette.White);
+            DrawString(ThemeDB.FallbackFont, new Vector2(-45, -28), "very loud · carry one", HorizontalAlignment.Center, 90, 8, Palette.Dim);
+        }
     }
 
     /// <summary>A fallen player's sack: everything they carried, for whoever gets there first.</summary>

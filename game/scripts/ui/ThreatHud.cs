@@ -73,12 +73,23 @@ public partial class ThreatHud : Control
             float baseline = y + 7;
 
             if (p.Dead) color = Palette.Wall;
+            if (p.CarryingRelic)
+            {
+                // Crown before the name: everyone can see who has a Relic.
+                DrawRect(new Rect2(Pad - 1, y + 3, 7, 2), Palette.White);
+                DrawRect(new Rect2(Pad - 1, y + 1, 1, 2), Palette.White);
+                DrawRect(new Rect2(Pad + 2, y + 1, 1, 2), Palette.White);
+                DrawRect(new Rect2(Pad + 5, y + 1, 1, 2), Palette.White);
+            }
+            else
             DrawRect(new Rect2(Pad, y + 1, 5, 5), color);
             var name = p.Info.DisplayName.Length > 9 ? p.Info.DisplayName[..9] : p.Info.DisplayName;
             DrawString(_font, new Vector2(Pad + 8, baseline), name, HorizontalAlignment.Left, -1, 8, color);
 
-            // Health: hearts, or a bleed-out countdown, or fallen.
-            if (p.Dead)
+            // Health: hearts, or a bleed-out countdown, or fallen / escaped.
+            if (p.Extracted)
+                DrawString(_font, new Vector2(Pad + 56, baseline), "ESCAPED", HorizontalAlignment.Left, -1, 8, Palette.White);
+            else if (p.Dead)
                 DrawString(_font, new Vector2(Pad + 56, baseline), "FALLEN", HorizontalAlignment.Left, -1, 8, Palette.Wall);
             else if (p.Downed)
             {
@@ -92,7 +103,8 @@ public partial class ThreatHud : Control
                 for (int h = 0; h < max; h++) DrawHeart(new Vector2(Pad + 56 + h * 7, y + 2), h < p.Hearts);
             }
 
-            DrawString(_font, new Vector2(Pad + 92, baseline), $"{p.CarriedPoints}p", HorizontalAlignment.Left, -1, 8, p.Dead ? Palette.Wall : Palette.White);
+            int points = p.Extracted ? p.Banked : p.CarriedPoints;
+            DrawString(_font, new Vector2(Pad + 92, baseline), $"{points}p", HorizontalAlignment.Left, -1, 8, p.Dead ? Palette.Wall : Palette.White);
             DrawString(_font, new Vector2(Pad + 118, baseline), $"K{p.Keys}", HorizontalAlignment.Left, -1, 8, p.Keys > 0 ? Palette.White : Palette.Dim);
 
             // Noise share: the louder you've been lately, the more the dungeon will hunt you.

@@ -109,10 +109,21 @@ public sealed class AutopilotDevice : InputDevice
 
         MaybePlayCasualCard(me);
 
+        // 0c. Time to go home: carrying a Relic, the dungeon is Hunting, or the Collapse has begun.
+        if (me.CarryingRelic || _view.ThreatTier >= 3 || _view.CollapseSeconds is not null)
+        {
+            var exit = WorldLayout.RoomCenter(_view.Dungeon.Entrance);
+            if (pos.DistanceTo(exit) > Arrive)
+                return RoomNavigator.NextWaypoint(_view.Dungeon, pos, exit) is { } way ? (way - pos).Normalized() : Vector2.Zero;
+            PulseInteract();
+            return Vector2.Zero;
+        }
+
         // 1. Loot: keys by touch, chests by Interact, cards if free or affordable.
         var loot = _view.Dungeon.LootIn(room)
             .Where(l => !l.Claimed && _attempts.GetValueOrDefault(l.Id) < GiveUpPulses)
             .Where(l => l.Kind != LootKind.Card || l.Price <= me.CarriedPoints)
+            .Where(l => l.Kind != LootKind.Relic || !me.CarryingRelic)
             .Select(l => (Item: l, At: WorldLayout.LootPosition(room, l.Position)))
             .OrderBy(l => l.At.DistanceTo(pos))
             .FirstOrDefault();
@@ -140,7 +151,14 @@ public sealed class AutopilotDevice : InputDevice
             return Vector2.Zero;
         }
 
-        // 3. Leave through an open exit.
+        // 3. Head for a Relic while one is left (its chamber is always reachable without keys)…
+        if (!me.CarryingRelic && _view.Dungeon.Loot.FirstOrDefault(l => l.Kind == LootKind.Relic && !l.Claimed) is { } relic)
+        {
+            var goal = WorldLayout.LootPosition(relic.Room, relic.Position);
+            if (RoomNavigator.NextWaypoint(_view.Dungeon, pos, goal) is { } step) return (step - pos).Normalized();
+        }
+
+        // …otherwise leave through an open exit.
         _exitTarget ??= PickExit(data);
         if (_exitTarget is not { } target) return Vector2.Zero;
 

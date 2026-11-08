@@ -26,6 +26,7 @@ public static class DungeonGenerator
         int lockedVaults = LockVaults(floor, entrance);
         var loot = PlaceLoot(floor, entrance, config, lockedVaults, lootRng);
         loot.AddRange(PlaceCardOffers(floor, cards, loot, RngStreams.Create(seed, "dungeon-cards")));
+        loot.AddRange(PlaceRelics(floor, config, loot));
 
         return new DungeonMap([floor], entrance.Id, loot);
     }
@@ -203,6 +204,20 @@ public static class DungeonGenerator
                 yield return new LootItem(new EntityId(nextId++), LootKind.Card, room.Id, new RoomPoint(x, 0.35f), 0,
                     card.CardId, rule.Free ? 0 : card.Price);
             }
+        }
+    }
+
+    /// <summary>Relics stand in a row across the middle of the Relic Chamber, most valuable first.</summary>
+    private static IEnumerable<LootItem> PlaceRelics(Floor floor, DungeonConfig config, List<LootItem> placed)
+    {
+        var chamber = floor.Rooms.FirstOrDefault(r => r.Type == RoomType.RelicChamber);
+        if (chamber is null) yield break;
+        int nextId = placed.Count == 0 ? 1 : placed.Max(l => l.Id.Value) + 1;
+        var values = config.RelicValues.OrderByDescending(v => v).ToList();
+        for (int i = 0; i < values.Count; i++)
+        {
+            float x = (i + 1f) / (values.Count + 1f);
+            yield return new LootItem(new EntityId(nextId++), LootKind.Relic, chamber.Id, new RoomPoint(x, 0.5f), values[i]);
         }
     }
 

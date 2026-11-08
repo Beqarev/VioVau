@@ -8,6 +8,8 @@ public enum LootKind
     Card,
     /// <summary>A dead player's dropped points (<see cref="LootItem.Points"/>) and keys (<see cref="LootItem.Keys"/>).</summary>
     Bag,
+    /// <summary>The run's big prize: many points, a Threat spike, one carried at a time.</summary>
+    Relic,
 }
 
 /// <summary>A chest or key lying in a room. Claimed once opened / picked up.</summary>

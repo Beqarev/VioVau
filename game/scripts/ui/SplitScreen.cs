@@ -15,6 +15,11 @@ public partial class SplitScreen : Control
 
     private readonly List<(SubViewportContainer Container, Camera2D Camera)> _views = new();
     private World2D _world = null!;
+    private float _shake;
+    private readonly System.Random _random = new();
+
+    /// <summary>Shake every view (pixels of offset), fading out quickly.</summary>
+    public void Shake(float strength) => _shake = Math.Max(_shake, strength);
 
     public SplitScreen Init(World2D world)
     {
@@ -51,9 +56,12 @@ public partial class SplitScreen : Control
             if (container.Size != size) container.Size = size;
 
             camera.Zoom = new Vector2(zoom, zoom);
-            camera.Position = WorldLayout.RoomCenter(rooms[i]);
+            var jitter = _shake > 0.1f ? new Vector2((float)_random.NextDouble() * 2 - 1, (float)_random.NextDouble() * 2 - 1) * _shake : Vector2.Zero;
+            camera.Position = WorldLayout.RoomCenter(rooms[i]) + jitter.Round();
         }
     }
+
+    public override void _Process(double delta) => _shake = Mathf.MoveToward(_shake, 0, (float)delta * 12f);
 
     public override void _Draw() => DrawRect(new Rect2(Vector2.Zero, Size), Palette.Void);
 

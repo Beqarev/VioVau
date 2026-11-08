@@ -15,6 +15,27 @@ public partial class RoomNode : Node2D
 
     public Room Room { get; private set; } = null!;
 
+    private bool _collapsing;
+    private double _time;
+
+    /// <summary>Lobby only: once the Collapse starts, the escape circle burns white and pulses.</summary>
+    public bool Collapsing
+    {
+        get => _collapsing;
+        set
+        {
+            _collapsing = value;
+            SetProcess(value);
+            QueueRedraw();
+        }
+    }
+
+    public override void _Process(double delta)
+    {
+        _time += delta;
+        QueueRedraw();
+    }
+
     public bool Revealed
     {
         get => _revealed;
@@ -224,6 +245,13 @@ public partial class RoomNode : Node2D
 
     private void DrawExtractionCircle(Vector2 center)
     {
+        if (_collapsing)
+        {
+            float pulse = 0.5f + 0.5f * Mathf.Sin((float)_time * 6f);
+            DrawCircle(center, 30, new Color(Palette.White, 0.05f + 0.08f * pulse));
+            DrawArc(center, 34 + pulse * 2, 0, Mathf.Tau, 48, Palette.White, 1.5f);
+            DrawString(ThemeDB.FallbackFont, new Vector2(center.X - 40, center.Y + 50), "ESCAPE HERE", HorizontalAlignment.Center, 80, 8, Palette.White);
+        }
         var ring = new Color(Palette.Wall, 0.9f);
         DrawArc(center, 34, 0, Mathf.Tau, 48, ring, 1f);
         DrawArc(center, 28, 0, Mathf.Tau, 48, new Color(Palette.Wall, 0.5f), 1f);

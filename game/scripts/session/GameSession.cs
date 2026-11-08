@@ -29,7 +29,7 @@ public partial class GameSession : Node, IEnemyWorld
 
     private const double SprintReportInterval = 0.25;
     private const double EnemySyncInterval = 1.0 / 15.0;
-    private const float ReviveRange = 22f, NearbyEnemyRange = 30f;
+    private const float ReviveRange = 22f, NearbyEnemyRange = 30f, ExtractRange = 34f;
     private const double ReviveSeconds = 1.5;
 
     private readonly Dictionary<RoomId, RoomNode> _rooms = new();
@@ -52,8 +52,10 @@ public partial class GameSession : Node, IEnemyWorld
     private SplitScreen _screens = null!;
     private TierBanner _banner = null!;
     private HandHud _hands = null!;
+    private Scoreboard _scoreboard = null!;
     private Label _info = null!;
     private double _elapsed;
+    private double _endedFor;
     private readonly Queue<double> _screenshotTimes = new(DevOptions.ScreenshotTimes.Order());
 
     public override void _Ready()
@@ -133,7 +135,7 @@ public partial class GameSession : Node, IEnemyWorld
             PlayerCharacter character = null!;
             if (DevOptions.Autopilot && device is not null && (entry!.LocalSlot == 0 || DevOptions.AutopilotAll))
                 device = new AutopilotDevice(_view, info.Id, () => character.GlobalPosition,
-                    id => _characters.TryGetValue(id, out var c) && !c.IsDead ? c.GlobalPosition : null,
+                    id => _characters.TryGetValue(id, out var c) && c.IsInside ? c.GlobalPosition : null,
                     at => _enemies.Values.Select(e => (Vector2?)e.GlobalPosition).OrderBy(p => p!.Value.DistanceTo(at)).FirstOrDefault());
 
             character = new PlayerCharacter().Init(info.Id, info.DisplayName, i, device, spawnCenter + SpawnOffsets[i % SpawnOffsets.Length]);
@@ -162,6 +164,9 @@ public partial class GameSession : Node, IEnemyWorld
         hud.AddChild(_banner);
         _hands = new HandHud().Init(_view, LocalHands);
         hud.AddChild(_hands);
+        hud.AddChild(new CollapseHud().Init(_view));
+        _scoreboard = new Scoreboard().Init(_view, _net.IsHost);
+        hud.AddChild(_scoreboard);
 
         _info = new Label { Position = new Vector2(196, 1) }; // top centre; the bottom-left belongs to the hand
         _info.AddThemeFontSizeOverride("font_size", 8);
@@ -177,18 +182,24 @@ public partial class GameSession : Node, IEnemyWorld
 
         // One view per room containing a local player; with no local players (spectating), watch the Lobby.
         var rooms = _characters.Values
-            .Where(c => c.IsLocal && !c.IsDead)
+            .Where(c => c.IsLocal && c.IsInside)
             .Select(c => WorldLayout.RoomAt(0, c.GlobalPosition))
             .Where(_view.Dungeon.Contains)
             .Distinct()
             .ToList();
         // All local players dead (or none): spectate a teammate who's still in, else the Lobby.
-        if (rooms.Count == 0 && _characters.Values.FirstOrDefault(c => !c.IsDead) is { } survivor)
+        if (rooms.Count == 0 && _characters.Values.FirstOrDefault(c => c.IsInside) is { } survivor)
             rooms.Add(WorldLayout.RoomAt(0, survivor.GlobalPosition));
         if (rooms.Count == 0) rooms.Add(_view.Dungeon.Entrance);
         _screens.ShowRooms(rooms);
 
         UpdateHighlights();
+
+        if (_view.Results is not null && _net.IsHost && DevOptions.AutoRematch)
+        {
+            _endedFor += delta;
+            if (_endedFor > 3 && _endedFor - delta <= 3) _net.Rematch();
+        }
 
         _elapsed += delta;
         if (_screenshotTimes.Count > 0 && _elapsed >= _screenshotTimes.Peek()) SaveScreenshot(_screenshotTimes.Dequeue());
@@ -211,7 +222,7 @@ public partial class GameSession : Node, IEnemyWorld
 
             switch (target)
             {
-                case { Kind: InteractKind.Chest or InteractKind.Card or InteractKind.Bag } loot when _loot.TryGetValue(new EntityId(loot.Value), out var node):
+                case { Kind: InteractKind.Chest or InteractKind.Card or InteractKind.Bag or InteractKind.Relic } loot when _loot.TryGetValue(new EntityId(loot.Value), out var node):
                     node.Highlighted = true;
                     break;
                 case { Kind: InteractKind.Door } door when _rooms.TryGetValue(WorldLayout.RoomAt(0, character.GlobalPosition), out var room):
@@ -225,7 +236,7 @@ public partial class GameSession : Node, IEnemyWorld
     {
         if (_view is null || !_net.IsHost || _net.State is null) return;
 
-        foreach (var character in _characters.Values.Where(c => !c.IsDead))
+        foreach (var character in _characters.Values.Where(c => c.IsInside))
         {
             DetectRoomChange(character);
             if (character.IsActive) PickUpTouchedKeys(character);
@@ -318,6 +329,8 @@ public partial class GameSession : Node, IEnemyWorld
             InteractKind.Chest => new OpenChest(player, new EntityId(target.Value)),
             InteractKind.Card => new TakeCard(player, new EntityId(target.Value)),
             InteractKind.Bag => new ClaimBag(player, new EntityId(target.Value)),
+            InteractKind.Relic => new TakeRelic(player, new EntityId(target.Value)),
+            InteractKind.Extract => new Extract(player),
             _ => new UnlockExit(player, (Direction)target.Value),
         };
         var result = _net.ApplyCommand(command);
@@ -413,15 +426,24 @@ public partial class GameSession : Node, IEnemyWorld
             }
         }
 
-        foreach (var loot in _view.Dungeon.LootIn(room).Where(l => !doorsOnly && !l.Claimed && l.Kind is LootKind.Chest or LootKind.Card or LootKind.Bag))
+        foreach (var loot in _view.Dungeon.LootIn(room).Where(l => !doorsOnly && !l.Claimed && l.Kind is not LootKind.Key))
         {
-            var kind = loot.Kind switch { LootKind.Chest => InteractKind.Chest, LootKind.Bag => InteractKind.Bag, _ => InteractKind.Card };
+            var kind = loot.Kind switch
+            {
+                LootKind.Chest => InteractKind.Chest,
+                LootKind.Bag => InteractKind.Bag,
+                LootKind.Relic => InteractKind.Relic,
+                _ => InteractKind.Card,
+            };
             Consider(new InteractTarget(kind, loot.Id.Value), WorldLayout.LootPosition(room, loot.Position), ChestRange);
         }
 
         var roomData = _view.Dungeon.GetRoom(room);
         foreach (var side in DirectionExtensions.All.Where(d => roomData.GetExit(d) == ExitState.Locked))
             Consider(new InteractTarget(InteractKind.Door, (int)side), WorldLayout.DoorCenter(room, side), DoorRange);
+
+        if (!doorsOnly && room == _view.Dungeon.Entrance)
+            Consider(new InteractTarget(InteractKind.Extract, 0), WorldLayout.RoomCenter(room), ExtractRange);
 
         if (!doorsOnly)
         {
@@ -522,6 +544,7 @@ public partial class GameSession : Node, IEnemyWorld
                 break;
 
             case PlayerDied died when _characters.TryGetValue(died.Player, out var gone):
+                gone.CarryingRelic = false;
                 GD.Print($"[Game {_elapsed:0.0}s] {died.Player} DIED");
                 _world.AddChild(new FloatingText().Init(gone.GlobalPosition + new Vector2(0, -22), $"{gone.DisplayName.ToUpperInvariant()} FELL", Palette.White));
                 gone.SetDead();
@@ -539,8 +562,30 @@ public partial class GameSession : Node, IEnemyWorld
                 break;
 
             case RunEnded ended:
-                GD.Print($"[Game {_elapsed:0.0}s] Run ended: {ended.Reason}");
-                _banner.Show($"{ended.Reason.ToUpperInvariant()}   ·   Esc to leave", Palette.White, double.PositiveInfinity);
+                GD.Print($"[Game {_elapsed:0.0}s] Run ended: {ended.Reason} — " +
+                    string.Join(", ", ended.Results.Select(r => $"{r.Player} {r.Outcome} {r.Banked}p{(r.Winner ? " WINNER" : "")}")));
+                _scoreboard.ShowResults();
+                break;
+
+            case RelicTaken relic when _characters.TryGetValue(relic.Player, out var lifter):
+                GD.Print($"[Game {_elapsed:0.0}s] {relic.Player} lifted a RELIC worth {relic.Points}p");
+                if (_loot.TryGetValue(relic.Relic, out var relicNode)) relicNode.Refresh();
+                lifter.CarryingRelic = true;
+                _world.AddChild(new FloatingText().Init(lifter.GlobalPosition + new Vector2(0, -28), $"RELIC +{relic.Points}", Palette.White));
+                _screens.Shake(2f);
+                break;
+
+            case PlayerExtracted escaped when _characters.TryGetValue(escaped.Player, out var escapee):
+                GD.Print($"[Game {_elapsed:0.0}s] {escaped.Player} ESCAPED with {escaped.Banked}p");
+                _world.AddChild(new FloatingText().Init(escapee.GlobalPosition + new Vector2(0, -22), $"ESCAPED  {escaped.Banked}p", Palette.White));
+                escapee.SetEscaped();
+                break;
+
+            case CollapseStarted collapse:
+                GD.Print($"[Game {_elapsed:0.0}s] COLLAPSE: {collapse.Reason}");
+                _banner.Show(collapse.Reason.ToUpperInvariant(), Palette.White, 4);
+                if (_rooms.TryGetValue(_view.Dungeon.Entrance, out var lobby)) lobby.Collapsing = true;
+                _screens.Shake(4f);
                 break;
 
             case CardTaken taken:
@@ -561,7 +606,7 @@ public partial class GameSession : Node, IEnemyWorld
 
     private IReadOnlyList<HandHud.LocalHand> LocalHands() =>
         _characters.Values
-            .Where(c => c.IsLocal && !c.IsDead)
+            .Where(c => c.IsLocal && c.IsInside && _view.Results is null)
             .OrderBy(c => c.ColorIndex)
             .Select(c => new HandHud.LocalHand(c.Id, c.ColorIndex, c.Device!))
             .ToList();
@@ -587,6 +632,15 @@ public partial class GameSession : Node, IEnemyWorld
 
     public override void _UnhandledInput(InputEvent e)
     {
+        // After the run: the host starts the next one.
+        if (_view?.Results is not null && _net.IsHost &&
+            e is InputEventKey { Pressed: true, Echo: false, PhysicalKeycode: Key.Enter or Key.KpEnter } or InputEventJoypadButton { Pressed: true, ButtonIndex: JoyButton.Start })
+        {
+            GetViewport().SetInputAsHandled();
+            _net.Rematch();
+            return;
+        }
+
         if (e is InputEventKey { Pressed: true, Echo: false, PhysicalKeycode: Key.Escape })
         {
             GetViewport().SetInputAsHandled();
@@ -678,7 +732,7 @@ public partial class GameSession : Node, IEnemyWorld
 
     private IEnumerable<Minimap.Marker> MinimapMarkers() =>
         _characters.Values
-            .Where(c => !c.IsDead)
+            .Where(c => c.IsInside)
             .Select(c => new Minimap.Marker(WorldLayout.RoomAt(0, c.GlobalPosition), c.ColorIndex))
             .Where(m => _view.Dungeon.Contains(m.Room));
 }

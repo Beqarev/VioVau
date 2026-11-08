@@ -21,6 +21,19 @@ public partial class PlayerOverlay : Node2D
         }
     }
 
+    private bool _relic;
+
+    public bool CarryingRelic
+    {
+        get => _relic;
+        set
+        {
+            if (_relic == value) return;
+            _relic = value;
+            QueueRedraw();
+        }
+    }
+
     public PlayerOverlay Init(int colorIndex, float headY)
     {
         _colorIndex = colorIndex;
@@ -34,6 +47,16 @@ public partial class PlayerOverlay : Node2D
         var font = ThemeDB.FallbackFont;
         var color = Palette.PlayerColor(_colorIndex);
         DrawString(font, new Vector2(-3, _headY - 2), (_colorIndex + 1).ToString(), HorizontalAlignment.Left, -1, 8, color);
+
+        if (_relic)
+        {
+            // Tiny crown above the number.
+            var c = new Vector2(-3, _headY - 14);
+            DrawRect(new Rect2(c + new Vector2(0, 2), new Vector2(7, 2)), Palette.White);
+            DrawRect(new Rect2(c, new Vector2(1, 2)), Palette.White);
+            DrawRect(new Rect2(c + new Vector2(3, 0), new Vector2(1, 2)), Palette.White);
+            DrawRect(new Rect2(c + new Vector2(6, 0), new Vector2(1, 2)), Palette.White);
+        }
 
         if (_prompt is not null)
         {

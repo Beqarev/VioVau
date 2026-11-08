@@ -70,7 +70,10 @@ public sealed partial class RunState
             Die(player, events);
             someoneDied = true;
         }
-        if (someoneDied) CheckWipe(events);
+        if (someoneDied) CheckRunOver(events);
+        if (Phase != RunPhase.InRun) return;
+
+        TickCollapse(seconds, events);
         if (Phase != RunPhase.InRun) return;
 
         TickStrikes(seconds, events);
@@ -106,7 +109,7 @@ public sealed partial class RunState
     /// <summary>A random active player, weighted by attributed noise (uniform if nobody has made any).</summary>
     public PlayerState? PickByNoise()
     {
-        var candidates = Players.Where(p => p.Active && p.Room is not null).ToList();
+        var candidates = Players.Where(p => p.Active && p.Room is not null).ToList(); // escaped players are out of reach
         if (candidates.Count == 0) return null;
 
         var weights = candidates.Select(p => Threat.NoiseOf(p.Id)).ToList();
@@ -156,7 +159,7 @@ public sealed partial class RunState
             player.Downed = true;
             player.BleedRemaining = Enemies.Health.BleedOutSeconds;
             events.Add(new PlayerDowned(c.Player, Enemies.Health.BleedOutSeconds));
-            CheckWipe(events);
+            CheckRunOver(events);
         }
         return CommandResult.Ok(events);
     }
@@ -201,16 +204,21 @@ public sealed partial class RunState
         }
         player.CarriedPoints = 0;
         player.Keys = 0;
+        player.CarryingRelic = false;
+        player.Outcome = RunOutcome.Fell;
         events.Add(new PlayerDied(player.Id));
     }
 
-    /// <summary>If nobody is left standing, nobody can revive: the downed die and the run is over.</summary>
-    private void CheckWipe(List<IGameEvent> events)
+    /// <summary>
+    /// The run is over when nobody is left inside. If everyone still inside is downed, nobody can revive them
+    /// (escaped players don't come back): they fall, and the run is over.
+    /// </summary>
+    private void CheckRunOver(List<IGameEvent> events)
     {
+        if (Phase != RunPhase.InRun) return;
         if (Players.Any(p => p.Active)) return;
-        foreach (var downed in Players.Where(p => p.Downed).ToList()) Die(downed, events);
-        Phase = RunPhase.Ended;
-        events.Add(new RunEnded("Everyone fell in the vault."));
+        foreach (var downed in Players.Where(p => p.Inside && p.Downed).ToList()) Die(downed, events);
+        EndRun(events);
     }
 
     private CommandResult Claim(ClaimBag c)

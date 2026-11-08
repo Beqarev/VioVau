@@ -52,8 +52,20 @@ public sealed class PlayerState
 
     public bool Dead { get; internal set; }
 
-    /// <summary>Not downed and not dead: can act, be hit, be targeted.</summary>
-    public bool Active => !Downed && !Dead;
+    /// <summary>Carrying a Relic (its points are in <see cref="CarriedPoints"/>).</summary>
+    public bool CarryingRelic { get; internal set; }
+
+    /// <summary>Escaped through the Lobby: out of the dungeon, points banked.</summary>
+    public bool Extracted { get; internal set; }
+
+    public int Banked { get; internal set; }
+    public RunOutcome? Outcome { get; internal set; }
+
+    /// <summary>Still in the dungeon (not escaped, not dead).</summary>
+    public bool Inside => !Dead && !Extracted;
+
+    /// <summary>Inside and on their feet: can act, be hit, be targeted.</summary>
+    public bool Active => Inside && !Downed;
 
     internal double BleedRemaining { get; set; }
     public TimeSpan InvulnerableUntil { get; internal set; }
@@ -124,6 +136,8 @@ public sealed partial class RunState
         HitPlayer c => Hit(c),
         RevivePlayer c => Revive(c),
         ClaimBag c => Claim(c),
+        TakeRelic c => LiftRelic(c),
+        Extract c => Escape(c),
         OpenChest c => Open(c),
         PickUpKey c => PickUp(c),
         UnlockExit c => Unlock(c),
@@ -281,6 +295,7 @@ public sealed partial class RunState
         if (Phase != RunPhase.InRun || Dungeon is null) return CommandResult.Reject("Only possible during a run.");
         if (GetPlayer(id) is not { Room: { } current } found) return CommandResult.Reject($"{id} is not in the run.");
         if (found.Dead) return CommandResult.Reject($"{found.DisplayName} is dead.");
+        if (found.Extracted) return CommandResult.Reject($"{found.DisplayName} has escaped.");
         if (requireActive && found.Downed) return CommandResult.Reject($"{found.DisplayName} is down.");
 
         player = found;
