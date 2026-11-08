@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Godot;
 using VioVau.Core;
+using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
 using VioVau.Core.Net;
 using VioVau.Core.Threat;
@@ -14,6 +15,8 @@ public sealed record RosterEntry(int PlayerId, int PeerId, int LocalSlot, string
 public enum InteractKind
 {
     Chest,
+    /// <summary>A card offer (Library / Merchant); Value = EntityId.</summary>
+    Card,
     Door,
 }
 
@@ -32,6 +35,7 @@ public partial class NetSession : Node
     public const string GameScene = "res://scenes/Game.tscn";
     private const string DungeonConfigPath = "res://data/dungeon.json";
     private const string ThreatConfigPath = "res://data/threat.json";
+    private const string CardsConfigPath = "res://data/cards.json";
 
     public static NetSession Instance { get; private set; } = null!;
 
@@ -57,6 +61,12 @@ public partial class NetSession : Node
 
     /// <summary>Host only: a player (local or remote) asked to interact. The game scene validates range and applies it.</summary>
     public event Action<PlayerId, InteractTarget>? InteractRequested;
+
+    /// <summary>Host only: a player asked to play the card in a hand slot. The game scene finds the target and applies it.</summary>
+    public event Action<PlayerId, int>? PlayCardRequested;
+
+    /// <summary>A short message for one of this machine's players (e.g. why a card couldn't be played).</summary>
+    public event Action<PlayerId, string>? PlayerNotified;
 
     public override void _EnterTree() => Instance = this;
 
@@ -95,7 +105,7 @@ public partial class NetSession : Node
         IsHost = true;
         LocalPlayers.Locked = true;
 
-        var seed = (ulong)System.Random.Shared.NextInt64();
+        var seed = Dev.DevOptions.Seed ?? (ulong)System.Random.Shared.NextInt64();
         State = new RunState(seed, LoadGameConfig());
 
         var rejection = AddPlayers(LocalPeerId, LocalPlayers.Names());
@@ -196,6 +206,36 @@ public partial class NetSession : Node
         InteractRequested?.Invoke(new PlayerId(playerId), new InteractTarget((InteractKind)kind, value));
     }
 
+    // ── Cards ───────────────────────────────────────────────────────────────
+
+    /// <summary>Ask the host to play a card. Only the slot is sent; the host decides the target from its own positions.</summary>
+    public void RequestPlayCard(PlayerId player, int slot)
+    {
+        if (IsHost) PlayCardRequested?.Invoke(player, slot);
+        else if (IsOnline) RpcId(1, MethodName.ReceivePlayCard, player.Value, slot);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ReceivePlayCard(int playerId, int slot)
+    {
+        if (!IsHost || !SenderOwns(playerId)) return;
+        PlayCardRequested?.Invoke(new PlayerId(playerId), slot);
+    }
+
+    /// <summary>Host only: tell one player something (only their machine shows it).</summary>
+    public void NotifyPlayer(PlayerId player, string message)
+    {
+        int peer = OwnerPeer(player);
+        if (peer == LocalPeerId) PlayerNotified?.Invoke(player, message);
+        else if (peer > 0) RpcId(peer, MethodName.ReceiveNotification, player.Value, message);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ReceiveNotification(int playerId, string message) =>
+        PlayerNotified?.Invoke(new PlayerId(playerId), message);
+
+    private int OwnerPeer(PlayerId player) => _roster.FirstOrDefault(r => r.PlayerId == player.Value)?.PeerId ?? 0;
+
     /// <summary>Whether the peer that sent the current RPC controls this player.</summary>
     private bool SenderOwns(int playerId)
     {
@@ -288,13 +328,28 @@ public partial class NetSession : Node
 
     // ── Events ──────────────────────────────────────────────────────────────
 
-    private void Broadcast(IReadOnlyList<IGameEvent> events) =>
-        Rpc(MethodName.ReceiveEvents, EventCodec.Encode(events));
-
-    [Rpc(MultiplayerApi.RpcMode.Authority, CallLocal = true, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
-    private void ReceiveEvents(string json)
+    /// <summary>
+    /// Sends each machine the events it may see: public events to everyone, private ones (drawn cards…)
+    /// only to the machine that owns that player. Order is preserved per machine.
+    /// </summary>
+    private void Broadcast(IReadOnlyList<IGameEvent> events)
     {
-        foreach (var e in EventCodec.Decode(json))
+        foreach (int peer in Multiplayer.GetPeers())
+        {
+            var visible = EventVisibility.For(events, p => OwnerPeer(p) == peer);
+            if (visible.Count > 0) RpcId(peer, MethodName.ReceiveEvents, EventCodec.Encode(visible));
+        }
+
+        var mine = EventVisibility.For(events, p => OwnerPeer(p) == LocalPeerId);
+        if (mine.Count > 0) HandleEvents(mine);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ReceiveEvents(string json) => HandleEvents(EventCodec.Decode(json));
+
+    private void HandleEvents(IReadOnlyList<IGameEvent> events)
+    {
+        foreach (var e in events)
         {
             if (e is RunStarted started)
             {
@@ -330,7 +385,8 @@ public partial class NetSession : Node
 
     private static GameConfig LoadGameConfig() =>
         new(Load(DungeonConfigPath, DungeonConfig.FromJson, DungeonConfig.Default),
-            Load(ThreatConfigPath, ThreatConfig.FromJson, ThreatConfig.Default));
+            Load(ThreatConfigPath, ThreatConfig.FromJson, ThreatConfig.Default),
+            Load(CardsConfigPath, CardsConfig.FromJson, CardsConfig.Default));
 
     private static T Load<T>(string path, Func<string, T> parse, T fallback)
     {

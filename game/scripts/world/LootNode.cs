@@ -1,4 +1,5 @@
 using Godot;
+using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
 using VioVau.Game.UI;
 
@@ -16,6 +17,7 @@ public partial class LootNode : Node2D
     private bool _fancy;
     private double _time;
     private Texture2D? _closed, _open, _key;
+    private CardDefinition? _card;
 
     public LootItem Item { get; private set; } = null!;
 
@@ -26,15 +28,18 @@ public partial class LootNode : Node2D
         {
             if (_highlighted == value) return;
             _highlighted = value;
+            ZIndex = value ? 25 : 5; // tooltips above players
             QueueRedraw();
         }
     }
 
     /// <param name="fancy">Use the ornate vault chest art (chests inside Vaults).</param>
-    public LootNode Init(LootItem item, bool fancy)
+    /// <param name="card">The card's data, for card offers.</param>
+    public LootNode Init(LootItem item, bool fancy, CardDefinition? card = null)
     {
         Item = item;
         _fancy = fancy;
+        _card = card;
         Name = $"{item.Kind}_{item.Id.Value}";
         Position = WorldLayout.LootPosition(item.Room, item.Position);
         ZIndex = 5;
@@ -52,7 +57,7 @@ public partial class LootNode : Node2D
     /// <summary>Call after the item was claimed.</summary>
     public void Refresh()
     {
-        if (Item.Kind == LootKind.Key && Item.Claimed) Visible = false;
+        if (Item.Kind is LootKind.Key && Item.Claimed) Visible = false;
         SetProcess(Item.Kind == LootKind.Key && !Item.Claimed);
         QueueRedraw();
     }
@@ -66,8 +71,12 @@ public partial class LootNode : Node2D
 
     public override void _Draw()
     {
-        if (Item.Kind == LootKind.Chest) DrawChest();
-        else DrawKey();
+        switch (Item.Kind)
+        {
+            case LootKind.Chest: DrawChest(); break;
+            case LootKind.Key: DrawKey(); break;
+            case LootKind.Card: DrawCardOffer(); break;
+        }
     }
 
     private void DrawChest()
@@ -105,6 +114,36 @@ public partial class LootNode : Node2D
         DrawCircle(Vector2.Zero, 4f, new Color(Palette.Void, 0.5f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         DrawTexture(_key, new Vector2(-size.X / 2f, -size.Y + 1 + bob));
+    }
+
+    /// <summary>A card on a lectern (Library) or pedestal (Merchant, with a price tag).</summary>
+    private void DrawCardOffer()
+    {
+        // Lectern.
+        DrawRect(new Rect2(-7, -2, 14, 5), Palette.Wall);
+        DrawRect(new Rect2(-7, -2, 14, 5), Palette.Void, filled: false, width: 1f);
+        DrawRect(new Rect2(-2, 3, 4, 4), Palette.Floor);
+        if (Item.Claimed) return;
+
+        var color = _card is null ? Palette.Accent : CardStyle.CategoryColor(_card.Category);
+        var card = new Rect2(-5, -15, 10, 13);
+        DrawRect(card, Palette.Void);
+        DrawRect(card.Grow(-1), Palette.Floor);
+        DrawRect(new Rect2(card.Position + Vector2.One, new Vector2(8, 2)), color);
+        DrawRect(card, _card is null ? Palette.Wall : CardStyle.RarityColor(_card.Rarity), filled: false, width: 1f);
+
+        var font = ThemeDB.FallbackFont;
+        if (Item.Price > 0)
+            DrawString(font, new Vector2(-12, 14), $"{Item.Price}p", HorizontalAlignment.Center, 24, 8, Palette.White);
+
+        if (_highlighted && _card is not null)
+        {
+            DrawBrackets(new Rect2(-8, -18, 16, 22));
+            var title = Item.Price > 0 ? $"{_card.Name}  ·  {Item.Price}p" : $"{_card.Name}  ·  free";
+            DrawRect(new Rect2(-62, -46, 124, 26), new Color(Palette.Void, 0.9f));
+            DrawString(font, new Vector2(-60, -37), title, HorizontalAlignment.Center, 120, 8, color);
+            DrawMultilineString(font, new Vector2(-60, -28), _card.Text, HorizontalAlignment.Center, 120, 8, 2, Palette.White);
+        }
     }
 
     private void DrawBrackets(Rect2 r)

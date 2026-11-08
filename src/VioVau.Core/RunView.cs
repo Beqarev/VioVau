@@ -1,3 +1,4 @@
+using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
 
 namespace VioVau.Core;
@@ -11,7 +12,20 @@ public sealed class PlayerView
     public int Keys { get; internal set; }
     public double NoiseShare { get; internal set; }
 
-    internal PlayerView(PlayerInfo info) => Info = info;
+    /// <summary>Cards held — public.</summary>
+    public int HandCount { get; internal set; }
+
+    /// <summary>The actual cards per slot. Only known for this machine's own players (null otherwise).</summary>
+    public CardId?[] Hand { get; }
+
+    public int DrawPile { get; internal set; }
+    public int DiscardPile { get; internal set; }
+
+    internal PlayerView(PlayerInfo info, int handSize)
+    {
+        Info = info;
+        Hand = new CardId?[handSize];
+    }
 }
 
 /// <summary>
@@ -40,8 +54,8 @@ public sealed class RunView
         Seed = started.Seed;
         Config = started.Config;
         Players = started.Players;
-        Dungeon = DungeonGenerator.Generate(started.Seed, started.Config.Dungeon);
-        _players = started.Players.ToDictionary(p => p.Id, p => new PlayerView(p));
+        Dungeon = DungeonGenerator.Generate(started.Seed, started.Config.Dungeon, started.Config.CardSet);
+        _players = started.Players.ToDictionary(p => p.Id, p => new PlayerView(p, started.Config.CardSet.HandSize));
     }
 
     public static RunView FromStart(RunStarted started) => new(started);
@@ -87,7 +101,33 @@ public sealed class RunView
 
             case ExitUnlocked unlocked:
                 Dungeon.SetDoorway(unlocked.Room, unlocked.Side, ExitState.Open);
-                if (Player(unlocked.Player) is { } unlocker) unlocker.Keys--;
+                if (unlocked.UsedKey && Player(unlocked.Player) is { } unlocker) unlocker.Keys--;
+                break;
+
+            case CardDrawn drawn when Player(drawn.Player) is { } drawer && drawn.Slot < drawer.Hand.Length:
+                drawer.Hand[drawn.Slot] = drawn.Card;
+                break;
+
+            case CardPlayed played when Player(played.Player) is { } player && played.Slot < player.Hand.Length:
+                player.Hand[played.Slot] = null;
+                break;
+
+            case HandChanged hand when Player(hand.Player) is { } holder:
+                holder.HandCount = hand.Count;
+                break;
+
+            case DeckChanged deck when Player(deck.Player) is { } owner:
+                owner.DrawPile = deck.DrawPile;
+                owner.DiscardPile = deck.DiscardPile;
+                break;
+
+            case PlayerResourcesChanged resources when Player(resources.Player) is { } rich:
+                rich.CarriedPoints = resources.CarriedPoints;
+                rich.Keys = resources.Keys;
+                break;
+
+            case CardTaken taken:
+                if (Dungeon.GetLoot(taken.Offer) is { } offer) offer.Claimed = true;
                 break;
         }
     }

@@ -25,6 +25,10 @@ public partial class PlayerCharacter : CharacterBody2D
     private double _sendTimer;
     private bool _wasInteracting;
     private string _facing = "down";
+    private readonly bool[] _wasCard = new bool[3];
+    private Vector2 _dashVelocity;
+    private double _dashTime;
+    private double _hushTime;
     private AnimatedSprite2D? _sprite;
     private PlayerOverlay _overlay = null!;
 
@@ -42,6 +46,18 @@ public partial class PlayerCharacter : CharacterBody2D
 
     /// <summary>Raised when this local player presses Interact.</summary>
     public event Action<PlayerCharacter>? InteractPressed;
+
+    /// <summary>Raised when this local player presses a card button (slot 0–2).</summary>
+    public event Action<PlayerCharacter, int>? CardPressed;
+
+    /// <summary>Unit vector of the way the character faces.</summary>
+    public Vector2 FacingVector => _facing switch
+    {
+        "left" => Vector2.Left,
+        "right" => Vector2.Right,
+        "up" => Vector2.Up,
+        _ => Vector2.Down,
+    };
 
     /// <summary>Button hint drawn above the player (e.g. "E"), or null.</summary>
     public string? Prompt
@@ -97,12 +113,24 @@ public partial class PlayerCharacter : CharacterBody2D
             if (move.LengthSquared() > 1f) move = move.Normalized();
             bool sprintHeld = Device.ReadSprint();
             Velocity = move * (sprintHeld ? SprintSpeed : WalkSpeed);
+            if (_dashTime > 0)
+            {
+                _dashTime -= delta;
+                Velocity = _dashVelocity;
+            }
             MoveAndSlide();
             IsSprinting = sprintHeld && GetRealVelocity().Length() > WalkSpeed * 0.5f;
 
             bool interacting = Device.ReadInteract();
             if (interacting && !_wasInteracting) InteractPressed?.Invoke(this);
             _wasInteracting = interacting;
+
+            for (int slot = 0; slot < _wasCard.Length; slot++)
+            {
+                bool held = Device.ReadCard(slot);
+                if (held && !_wasCard[slot]) CardPressed?.Invoke(this, slot);
+                _wasCard[slot] = held;
+            }
 
             _sendTimer += delta;
             if (_sendTimer >= SendInterval)
@@ -118,8 +146,38 @@ public partial class PlayerCharacter : CharacterBody2D
                 : Position.Lerp(_remoteTarget, 1f - Mathf.Exp(-18f * (float)delta));
         }
 
+        if (_hushTime > 0)
+        {
+            _hushTime -= delta;
+            Modulate = new Color(1, 1, 1, _hushTime > 0 ? 0.55f : 1f);
+        }
+
         Animate();
     }
+
+    /// <summary>Dash card: a short burst in the facing direction (local players only; others see it via position sync).</summary>
+    public void Dash(float distance)
+    {
+        if (!IsLocal) return;
+        const double duration = 0.18;
+        _dashVelocity = FacingVector * (float)(distance / duration);
+        _dashTime = duration;
+    }
+
+    /// <summary>Blink card: teleport forward, stopping short of the first wall in the way.</summary>
+    public void Blink(float distance)
+    {
+        if (!IsLocal) return;
+        var from = GlobalPosition;
+        var to = from + FacingVector * distance;
+        var query = PhysicsRayQueryParameters2D.Create(from, to, PhysicsLayers.Walls);
+        var hit = GetWorld2D().DirectSpaceState.IntersectRay(query);
+        if (hit.Count > 0) to = (Vector2)hit["position"] - FacingVector * 7f;
+        GlobalPosition = to;
+    }
+
+    /// <summary>Hush: shown as a faded character while silent (everyone sees it).</summary>
+    public void ShowHushed(double seconds) => _hushTime = Math.Max(_hushTime, seconds);
 
     public void ApplyRemoteState(Vector2 position, Vector2 velocity, bool sprinting)
     {

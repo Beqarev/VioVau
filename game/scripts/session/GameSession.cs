@@ -1,5 +1,6 @@
 using Godot;
 using VioVau.Core;
+using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
 using VioVau.Game.Dev;
 using VioVau.Game.Entities;
@@ -19,8 +20,8 @@ public partial class GameSession : Node
 {
     private static readonly Vector2[] SpawnOffsets = [new(-24, 0), new(24, 0), new(0, -24), new(0, 24)];
 
-    /// <summary>Reach for chests / locked doors / walking over keys, in pixels.</summary>
-    private const float ChestRange = 20f, DoorRange = 28f, KeyRange = 12f;
+    /// <summary>Reach for chests / card offers / locked doors / walking over keys / beside a player, in pixels.</summary>
+    private const float ChestRange = 20f, DoorRange = 28f, KeyRange = 12f, NearbyPlayerRange = 28f;
 
     /// <summary>Extra reach the host allows for remote players (their position is ~1 network tick old).</summary>
     private const float RemoteTolerance = 12f;
@@ -39,6 +40,7 @@ public partial class GameSession : Node
     private Node2D _world = null!;
     private SplitScreen _screens = null!;
     private TierBanner _banner = null!;
+    private HandHud _hands = null!;
     private Label _info = null!;
     private double _elapsed;
     private readonly Queue<double> _screenshotTimes = new(DevOptions.ScreenshotTimes.Order());
@@ -60,6 +62,8 @@ public partial class GameSession : Node
         _net.PlayerStateReceived += OnPlayerState;
         _net.RosterChanged += OnRosterChanged;
         _net.InteractRequested += OnInteractRequested;
+        _net.PlayCardRequested += OnPlayCardRequested;
+        _net.PlayerNotified += OnPlayerNotified;
     }
 
     public override void _ExitTree()
@@ -69,6 +73,8 @@ public partial class GameSession : Node
         _net.PlayerStateReceived -= OnPlayerState;
         _net.RosterChanged -= OnRosterChanged;
         _net.InteractRequested -= OnInteractRequested;
+        _net.PlayCardRequested -= OnPlayCardRequested;
+        _net.PlayerNotified -= OnPlayerNotified;
     }
 
     // ── Setup ───────────────────────────────────────────────────────────────
@@ -89,7 +95,8 @@ public partial class GameSession : Node
         _world.AddChild(loot);
         foreach (var item in _view.Dungeon.Loot)
         {
-            var node = new LootNode().Init(item, fancy: _view.Dungeon.GetRoom(item.Room).Type == RoomType.Vault);
+            var card = item.Card is { } id ? _view.Config.CardSet.Get(id) : null;
+            var node = new LootNode().Init(item, fancy: _view.Dungeon.GetRoom(item.Room).Type == RoomType.Vault, card);
             loot.AddChild(node);
             _loot[item.Id] = node;
         }
@@ -110,6 +117,7 @@ public partial class GameSession : Node
 
             character = new PlayerCharacter().Init(info.Id, info.DisplayName, i, device, spawnCenter + SpawnOffsets[i % SpawnOffsets.Length]);
             character.InteractPressed += OnLocalInteractPressed;
+            character.CardPressed += (c, slot) => _net.RequestPlayCard(c.Id, slot);
             players.AddChild(character);
             _characters[info.Id] = character;
         }
@@ -128,8 +136,10 @@ public partial class GameSession : Node
         hud.AddChild(new ThreatHud().Init(_view));
         _banner = new TierBanner();
         hud.AddChild(_banner);
+        _hands = new HandHud().Init(_view, LocalHands);
+        hud.AddChild(_hands);
 
-        _info = new Label { Position = new Vector2(4, 256) };
+        _info = new Label { Position = new Vector2(196, 1) }; // top centre; the bottom-left belongs to the hand
         _info.AddThemeFontSizeOverride("font_size", 8);
         _info.AddThemeColorOverride("font_color", Palette.Dim);
         hud.AddChild(_info);
@@ -156,7 +166,7 @@ public partial class GameSession : Node
         _elapsed += delta;
         if (_screenshotTimes.Count > 0 && _elapsed >= _screenshotTimes.Peek()) SaveScreenshot(_screenshotTimes.Dequeue());
 
-        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")}  ·  {_characters.Count} players  ·  seed {_view.Seed % 100000}  ·  Esc: leave";
+        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")} · seed {_view.Seed % 100000} · Esc";
     }
 
     /// <summary>Light up whatever each local player would interact with, and show their button above them.</summary>
@@ -172,7 +182,7 @@ public partial class GameSession : Node
 
             switch (target)
             {
-                case { Kind: InteractKind.Chest } chest when _loot.TryGetValue(new EntityId(chest.Value), out var node):
+                case { Kind: InteractKind.Chest or InteractKind.Card } loot when _loot.TryGetValue(new EntityId(loot.Value), out var node):
                     node.Highlighted = true;
                     break;
                 case { Kind: InteractKind.Door } door when _rooms.TryGetValue(WorldLayout.RoomAt(0, character.GlobalPosition), out var room):
@@ -252,18 +262,60 @@ public partial class GameSession : Node
         float tolerance = character.IsLocal ? 0f : RemoteTolerance;
         if (FindTarget(character.AuthoritativePosition, tolerance, target) is null)
         {
-            GD.Print($"[Game] Ignored {player} → {target}: out of reach or already used.");
+            GD.Print($"[Game {_elapsed:0.0}s] Ignored {player} → {target}: out of reach or already used.");
             return;
         }
 
         ICommand command = target.Kind switch
         {
             InteractKind.Chest => new OpenChest(player, new EntityId(target.Value)),
+            InteractKind.Card => new TakeCard(player, new EntityId(target.Value)),
             _ => new UnlockExit(player, (Direction)target.Value),
         };
         var result = _net.ApplyCommand(command);
-        if (!result.Accepted) GD.Print($"[Game] {player} could not {command.GetType().Name}: {result.RejectionReason}");
+        if (!result.Accepted) _net.NotifyPlayer(player, result.RejectionReason ?? "Can't do that.");
     }
+
+    /// <summary>
+    /// Host: play a card. The host picks the target from its own positions (a locked door in reach,
+    /// the player beside you, or the nearest player), so clients can't fake one.
+    /// </summary>
+    private void OnPlayCardRequested(PlayerId player, int slot)
+    {
+        var state = _net.State;
+        if (state?.GetPlayer(player)?.Deck?.PeekHand(slot) is not { } cardId || !_characters.TryGetValue(player, out var character)) return;
+        if (state.Config.CardSet.Get(cardId) is not { } card) return;
+
+        var pos = character.AuthoritativePosition;
+        float tolerance = character.IsLocal ? 0f : RemoteTolerance;
+        PlayerId? targetPlayer = null;
+        Direction? door = null;
+
+        switch (card.Target)
+        {
+            case CardTarget.LockedDoor:
+                if (FindTarget(pos, tolerance, doorsOnly: true) is { } d) door = (Direction)d.Value;
+                break;
+            case CardTarget.NearbyPlayer:
+                targetPlayer = NearestOtherPlayer(character, NearbyPlayerRange + tolerance);
+                break;
+            case CardTarget.OtherPlayer:
+                targetPlayer = NearestOtherPlayer(character, float.MaxValue);
+                break;
+        }
+
+        var result = _net.ApplyCommand(new PlayCard(player, slot, targetPlayer, door));
+        if (!result.Accepted) _net.NotifyPlayer(player, result.RejectionReason ?? $"Can't play {card.Name}.");
+    }
+
+    private PlayerId? NearestOtherPlayer(PlayerCharacter from, float range) =>
+        _characters.Values
+            .Where(c => c != from)
+            .Select(c => (c.Id, Distance: c.AuthoritativePosition.DistanceTo(from.AuthoritativePosition)))
+            .Where(c => c.Distance <= range)
+            .OrderBy(c => c.Distance)
+            .Select(c => (PlayerId?)c.Id)
+            .FirstOrDefault();
 
     // ── Interaction targeting (shared by prompts and host validation) ───────
 
@@ -277,7 +329,7 @@ public partial class GameSession : Node
     /// The nearest usable thing within reach of a position: an unopened chest, or a locked door of the room
     /// it's in. With <paramref name="only"/>, checks just that target.
     /// </summary>
-    private InteractTarget? FindTarget(Vector2 position, float tolerance, InteractTarget? only = null)
+    private InteractTarget? FindTarget(Vector2 position, float tolerance, InteractTarget? only = null, bool doorsOnly = false)
     {
         var room = WorldLayout.RoomAt(0, position);
         if (!_view.Dungeon.Contains(room)) return null;
@@ -296,8 +348,11 @@ public partial class GameSession : Node
             }
         }
 
-        foreach (var chest in _view.Dungeon.LootIn(room).Where(l => l.Kind == LootKind.Chest && !l.Claimed))
-            Consider(new InteractTarget(InteractKind.Chest, chest.Id.Value), WorldLayout.LootPosition(room, chest.Position), ChestRange);
+        foreach (var loot in _view.Dungeon.LootIn(room).Where(l => !doorsOnly && !l.Claimed && l.Kind is LootKind.Chest or LootKind.Card))
+        {
+            var kind = loot.Kind == LootKind.Chest ? InteractKind.Chest : InteractKind.Card;
+            Consider(new InteractTarget(kind, loot.Id.Value), WorldLayout.LootPosition(room, loot.Position), ChestRange);
+        }
 
         var roomData = _view.Dungeon.GetRoom(room);
         foreach (var side in DirectionExtensions.All.Where(d => roomData.GetExit(d) == ExitState.Locked))
@@ -313,7 +368,7 @@ public partial class GameSession : Node
         switch (e)
         {
             case PlayerEnteredRoom entered:
-                GD.Print($"[Game] {entered.Player} entered {entered.Room}{(entered.FirstVisit ? " (first visit)" : "")}");
+                GD.Print($"[Game {_elapsed:0.0}s] {entered.Player} entered {entered.Room}{(entered.FirstVisit ? " (first visit)" : "")}");
                 break;
 
             case RoomRevealed revealed when _rooms.TryGetValue(revealed.Room, out var room):
@@ -321,17 +376,17 @@ public partial class GameSession : Node
                 break;
 
             case ChestOpened opened:
-                GD.Print($"[Game] {opened.Player} opened {opened.Chest} for {opened.Points}p");
+                GD.Print($"[Game {_elapsed:0.0}s] {opened.Player} opened {opened.Chest} for {opened.Points}p");
                 if (_loot.TryGetValue(opened.Chest, out var chest)) chest.Refresh();
                 break;
 
             case KeyPickedUp picked:
-                GD.Print($"[Game] {picked.Player} picked up key {picked.Key}");
+                GD.Print($"[Game {_elapsed:0.0}s] {picked.Player} picked up key {picked.Key}");
                 if (_loot.TryGetValue(picked.Key, out var key)) key.Refresh();
                 break;
 
             case ExitUnlocked unlocked:
-                GD.Print($"[Game] {unlocked.Player} unlocked {unlocked.Side} of {unlocked.Room}");
+                GD.Print($"[Game {_elapsed:0.0}s] {unlocked.Player} unlocked {unlocked.Side} of {unlocked.Room}");
                 if (_rooms.TryGetValue(unlocked.Room, out var near)) near.RefreshExits();
                 if (_view.Dungeon.Neighbor(unlocked.Room, unlocked.Side) is { } far && _rooms.TryGetValue(far.Id, out var farNode))
                     farNode.RefreshExits();
@@ -341,14 +396,44 @@ public partial class GameSession : Node
                 _world.AddChild(new NoiseRing().Init(maker.GlobalPosition, noise.Amount));
                 break;
 
+            case CardPlayed played when _characters.TryGetValue(played.Player, out var player):
+                var name = _view.Config.CardSet.Get(played.Card)?.Name ?? played.Card.Value;
+                GD.Print($"[Game {_elapsed:0.0}s] {played.Player} played {name}");
+                _world.AddChild(new FloatingText().Init(player.GlobalPosition + new Vector2(0, -22), name.ToUpperInvariant(),
+                    _view.Config.CardSet.Get(played.Card) is { } def ? CardStyle.CategoryColor(def.Category) : Palette.White));
+                break;
+
+            case MovementEffect move when _characters.TryGetValue(move.Player, out var mover):
+                if (move.Kind == EffectType.Blink) mover.Blink((float)move.Distance);
+                else mover.Dash((float)move.Distance);
+                break;
+
+            case PlayerSilenced silenced when _characters.TryGetValue(silenced.Player, out var quiet):
+                quiet.ShowHushed(silenced.Seconds);
+                break;
+
+            case CardTaken taken:
+                GD.Print($"[Game {_elapsed:0.0}s] {taken.Player} took card {taken.Card} for {taken.Price}p");
+                if (_loot.TryGetValue(taken.Offer, out var offer)) offer.Refresh();
+                break;
+
             case ThreatTierChanged tier:
                 var config = _view.Config.Threat;
-                GD.Print($"[Game] Threat tier {tier.Tier}: {config.TierName(tier.Tier)}");
+                GD.Print($"[Game {_elapsed:0.0}s] Threat tier {tier.Tier}: {config.TierName(tier.Tier)}");
                 _banner.Show($"THREAT RISES  —  {config.TierName(tier.Tier).ToUpperInvariant()}",
                     ThreatHud.TierColor(tier.Tier, config.TierThresholds.Count));
                 break;
         }
     }
+
+    private void OnPlayerNotified(PlayerId player, string message) => _hands.ShowMessage(player, message);
+
+    private IReadOnlyList<HandHud.LocalHand> LocalHands() =>
+        _characters.Values
+            .Where(c => c.IsLocal)
+            .OrderBy(c => c.ColorIndex)
+            .Select(c => new HandHud.LocalHand(c.Id, c.ColorIndex, c.Device!))
+            .ToList();
 
     private void OnPlayerState(PlayerId player, Vector2 position, Vector2 velocity, bool sprinting)
     {

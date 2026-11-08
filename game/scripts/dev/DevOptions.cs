@@ -13,6 +13,9 @@ public static class DevOptions
 
     public static bool Autopilot => Args.Contains("--autopilot");
 
+    /// <summary><c>--seed=N</c>: the host uses this run seed (reproducible dungeons for testing).</summary>
+    public static ulong? Seed => ulong.TryParse(Value("seed"), out var seed) ? seed : null;
+
     public static double[] ScreenshotTimes =>
         Value("screenshot-at")?.Split(',').Select(s => double.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : -1).Where(t => t >= 0).ToArray()
         ?? [];

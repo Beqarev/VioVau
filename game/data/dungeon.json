@@ -12,7 +12,8 @@
     "GuardPost": 3,
     "EchoChamber": 1,
     "HushRoom": 1,
-    "Merchant": 1
+    "Merchant": 1,
+    "Library": 1
   },
   // Chests per room type (inclusive ranges). Types not listed get none.
   "loot": {

@@ -1,3 +1,4 @@
+using VioVau.Core.Cards;
 using VioVau.Core.Random;
 
 namespace VioVau.Core.Dungeon;
@@ -8,9 +9,10 @@ namespace VioVau.Core.Dungeon;
 /// </summary>
 public static class DungeonGenerator
 {
-    public static DungeonMap Generate(ulong seed, DungeonConfig config)
+    public static DungeonMap Generate(ulong seed, DungeonConfig config, CardsConfig? cards = null)
     {
         config.Validate();
+        cards ??= CardsConfig.Default;
         var layoutRng = RngStreams.Create(seed, "dungeon");
         var lootRng = RngStreams.Create(seed, "dungeon-loot"); // separate, so loot tuning never reshapes the map
 
@@ -23,6 +25,7 @@ public static class DungeonGenerator
         AssignRoomTypes(floor, entrance, config, layoutRng);
         int lockedVaults = LockVaults(floor, entrance);
         var loot = PlaceLoot(floor, entrance, config, lockedVaults, lootRng);
+        loot.AddRange(PlaceCardOffers(floor, cards, loot, RngStreams.Create(seed, "dungeon-cards")));
 
         return new DungeonMap([floor], entrance.Id, loot);
     }
@@ -179,6 +182,42 @@ public static class DungeonGenerator
         }
 
         return loot;
+    }
+
+    /// <summary>
+    /// Libraries and Merchants get cards on lecterns/pedestals in a row across the room's upper half,
+    /// rolled by rarity weight. Merchant cards cost their price; Library cards are free.
+    /// </summary>
+    private static IEnumerable<LootItem> PlaceCardOffers(Floor floor, CardsConfig cards, List<LootItem> placed, GameRng rng)
+    {
+        if (cards.Cards.Count == 0) yield break;
+        int nextId = placed.Count == 0 ? 1 : placed.Max(l => l.Id.Value) + 1;
+
+        foreach (var room in floor.Rooms)
+        {
+            if (!cards.Offers.TryGetValue(room.Type, out var rule) || rule.Count == 0) continue;
+            for (int i = 0; i < rule.Count; i++)
+            {
+                var card = RollCard(cards, rng);
+                float x = (i + 1f) / (rule.Count + 1f);
+                yield return new LootItem(new EntityId(nextId++), LootKind.Card, room.Id, new RoomPoint(x, 0.35f), 0,
+                    card.CardId, rule.Free ? 0 : card.Price);
+            }
+        }
+    }
+
+    private static CardDefinition RollCard(CardsConfig cards, GameRng rng)
+    {
+        var pool = cards.Cards.Where(c => cards.RarityWeights.GetValueOrDefault(c.Rarity) > 0).ToList();
+        if (pool.Count == 0) pool = cards.Cards;
+        int total = pool.Sum(c => Math.Max(1, cards.RarityWeights.GetValueOrDefault(c.Rarity)));
+        int roll = rng.NextInt(0, total);
+        foreach (var card in pool)
+        {
+            roll -= Math.Max(1, cards.RarityWeights.GetValueOrDefault(card.Rarity));
+            if (roll < 0) return card;
+        }
+        return pool[^1];
     }
 
     /// <summary>Walking distance from <paramref name="from"/> to every room reachable through passable exits.</summary>

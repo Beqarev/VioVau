@@ -121,6 +121,15 @@ Threat never drops below the current tier's floor except by rare effects — tie
 - When the deck is empty, the discard reshuffles in.
 - Cards are added during the run (Library, Merchant, Shrine, chests, secret rooms). Thinning the deck is possible at Shrines.
 
+### 7.1b Implemented (M3)
+- Data in `game/data/cards.json` (rules + card list); effects are composable (`Dash`, `Blink`, `Silence`, `Unlock`, `RevealAdjacent`, `RevealRooms`, `ShiftNoise`, `Steal`, `ClaimRoomLoot`, `MultiplyNextChest`, `GrantPoints`, `ScaleOwnNoise`).
+- Hand of 3 in fixed slots (keys: WASD `1 2 3`, Arrows `K L ;` / numpad `1 2 3`, gamepad `X Y B`).
+- Starter deck: Dash ×2, Hush, Lantern, Smoke Veil, Lockpick.
+- **Hands are secret**: drawn cards are only sent to their owner's machine; the hand *count* and every *played* card are public (the played card's name floats above the player).
+- Targets are chosen by the host: a locked door in reach (Lockpick), the player beside you (Pickpocket), or the nearest player anywhere (Scapegoat, Shared Fortune). A card that can't do anything is refused and stays in hand, with a short message to that player.
+- **Library**: 3 free cards on lecterns, one per player. **Merchant**: 3 cards for carried points. Gained cards go to the discard pile.
+- 12 cards so far; Flash Powder, Shatter, Decoy, Rally wait for enemies/downed (M4).
+
 ### 7.2 Card anatomy
 `Name · Category · Noise · Rarity · Price · Effect · (Target)`
 

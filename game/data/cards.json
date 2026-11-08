@@ -1,0 +1,68 @@
+{
+  // Card rules and the card list. All numbers are first guesses — tune in playtests.
+  "handSize": 3,
+  // While your hand isn't full you draw 1 card this often (plus 1 on each first visit to a room).
+  "drawIntervalSeconds": 30,
+
+  "starterDeck": ["dash", "dash", "hush", "lantern", "smoke-veil", "lockpick"],
+
+  // Rooms that offer cards. Library: free, take one. Merchant: buy with carried points.
+  "offers": {
+    "Library":  { "count": 3, "free": true, "perPlayerLimit": 1 },
+    "Merchant": { "count": 3, "free": false }
+  },
+  "rarityWeights": { "Common": 6, "Rare": 3, "Legendary": 1 },
+
+  // target: none | lockedDoor (a locked door in reach) | nearbyPlayer (within arm's reach) | otherPlayer (nearest anywhere)
+  // effect types: Dash, Blink, Silence, Unlock, RevealAdjacent, RevealRooms, ShiftNoise, Steal,
+  //               ClaimRoomLoot, MultiplyNextChest, GrantPoints, ScaleOwnNoise
+  "cards": [
+    { "id": "dash", "name": "Dash", "category": "Mobility", "rarity": "Common", "noise": 1, "price": 6,
+      "text": "Burst forward.",
+      "effects": [{ "type": "Dash", "amount": 72 }] },
+
+    { "id": "blink", "name": "Blink", "category": "Mobility", "rarity": "Rare", "noise": 2, "price": 14,
+      "text": "Teleport forward, through anything but walls.",
+      "effects": [{ "type": "Blink", "amount": 96 }] },
+
+    { "id": "hush", "name": "Hush", "category": "Stealth", "rarity": "Common", "noise": 0, "price": 8,
+      "text": "For 8s you make no noise.",
+      "effects": [{ "type": "Silence", "amount": 8 }] },
+
+    { "id": "smoke-veil", "name": "Smoke Veil", "category": "Stealth", "rarity": "Common", "noise": 0, "price": 8,
+      "text": "Half of your recent noise is forgotten.",
+      "effects": [{ "type": "ScaleOwnNoise", "amount": 0.5 }] },
+
+    { "id": "lockpick", "name": "Lockpick", "category": "Utility", "rarity": "Common", "noise": 1, "price": 10,
+      "text": "Open a locked door without a key.", "target": "lockedDoor",
+      "effects": [{ "type": "Unlock" }] },
+
+    { "id": "lantern", "name": "Lantern", "category": "Utility", "rarity": "Common", "noise": 0, "price": 6,
+      "text": "Reveal every room next to you.",
+      "effects": [{ "type": "RevealAdjacent" }] },
+
+    { "id": "void-sight", "name": "Void Sight", "category": "Utility", "rarity": "Rare", "noise": 1, "price": 14,
+      "text": "Reveal every Vault and the Relic Chamber.",
+      "effects": [{ "type": "RevealRooms", "rooms": ["Vault", "RelicChamber"] }] },
+
+    { "id": "scapegoat", "name": "Scapegoat", "category": "Social", "rarity": "Rare", "noise": 0, "price": 12,
+      "text": "Push 10 of your noise onto the nearest player.", "target": "otherPlayer",
+      "effects": [{ "type": "ShiftNoise", "amount": 10 }] },
+
+    { "id": "pickpocket", "name": "Pickpocket", "category": "Social", "rarity": "Rare", "noise": 2, "price": 12,
+      "text": "Steal a key — or up to 6 points — from a player beside you.", "target": "nearbyPlayer",
+      "effects": [{ "type": "Steal", "amount": 6 }] },
+
+    { "id": "loot-magnet", "name": "Loot Magnet", "category": "Greed", "rarity": "Rare", "noise": 2, "price": 14,
+      "text": "Open every chest and grab every key in the room. Each chest still makes its noise.",
+      "effects": [{ "type": "ClaimRoomLoot" }] },
+
+    { "id": "gilded-greed", "name": "Gilded Greed", "category": "Greed", "rarity": "Legendary", "noise": 4, "price": 20,
+      "text": "Your next chest pays double.",
+      "effects": [{ "type": "MultiplyNextChest", "amount": 2 }] },
+
+    { "id": "shared-fortune", "name": "Shared Fortune", "category": "Social", "rarity": "Common", "noise": 1, "price": 8,
+      "text": "You and the nearest player each gain 5 points.", "target": "otherPlayer",
+      "effects": [{ "type": "GrantPoints", "amount": 5 }] }
+  ]
+}

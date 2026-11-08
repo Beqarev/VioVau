@@ -32,6 +32,25 @@ public sealed class ThreatSystem
         return amount;
     }
 
+    /// <summary>Moves up to <paramref name="amount"/> of attributed noise from one player to another. Threat is unchanged.</summary>
+    /// <returns>The amount actually moved.</returns>
+    public double TransferNoise(PlayerId from, PlayerId to, double amount)
+    {
+        double moved = Math.Min(amount, _noise.GetValueOrDefault(from.Value));
+        if (moved <= 0) return 0;
+        _noise[from.Value] -= moved;
+        _noise[to.Value] = _noise.GetValueOrDefault(to.Value) + moved;
+        return moved;
+    }
+
+    /// <summary>Multiplies a player's attributed noise (e.g. 0.5 halves it). Threat is unchanged.</summary>
+    public void ScaleNoise(PlayerId player, double factor)
+    {
+        if (_noise.ContainsKey(player.Value)) _noise[player.Value] *= Math.Max(0, factor);
+    }
+
+    public double NoiseOf(PlayerId player) => _noise.GetValueOrDefault(player.Value);
+
     /// <summary>Passive drift, attribution decay, and periodic snapshots.</summary>
     public void Tick(TimeSpan dt, List<IGameEvent> events)
     {

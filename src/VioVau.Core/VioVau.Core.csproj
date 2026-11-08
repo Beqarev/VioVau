@@ -3,4 +3,8 @@
   <PropertyGroup>
     <RootNamespace>VioVau.Core</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Tests may set up state directly (e.g. give a player points). -->
+    <InternalsVisibleTo Include="VioVau.Core.Tests" />
+  </ItemGroup>
 </Project>
