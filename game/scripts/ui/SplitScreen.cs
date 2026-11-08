@@ -38,14 +38,18 @@ public partial class SplitScreen : Control
         while (_views.Count < rooms.Count) AddView();
         while (_views.Count > rooms.Count) RemoveLastView();
 
-        var rects = Layout(rooms.Count, screen);
+        var slots = Layout(rooms.Count, screen);
         for (int i = 0; i < rooms.Count; i++)
         {
             var (container, camera) = _views[i];
-            if (container.Position != rects[i].Position) container.Position = rects[i].Position;
-            if (container.Size != rects[i].Size) container.Size = rects[i].Size;
 
-            float zoom = Mathf.Min(rects[i].Size.X / WorldLayout.RoomWidth, rects[i].Size.Y / WorldLayout.RoomHeight);
+            // Letterbox each view to exactly one room, so neighbouring rooms never peek in.
+            float zoom = Mathf.Min(slots[i].Size.X / WorldLayout.RoomWidth, slots[i].Size.Y / WorldLayout.RoomHeight);
+            var size = (WorldLayout.RoomSize * zoom).Floor();
+            var position = (slots[i].Position + (slots[i].Size - size) / 2f).Floor();
+            if (container.Position != position) container.Position = position;
+            if (container.Size != size) container.Size = size;
+
             camera.Zoom = new Vector2(zoom, zoom);
             camera.Position = WorldLayout.RoomCenter(rooms[i]);
         }

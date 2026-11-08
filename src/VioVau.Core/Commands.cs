@@ -17,6 +17,12 @@ public interface ICommand;
 [JsonDerivedType(typeof(RunStarted), "runStarted")]
 [JsonDerivedType(typeof(PlayerEnteredRoom), "playerEnteredRoom")]
 [JsonDerivedType(typeof(RoomRevealed), "roomRevealed")]
+[JsonDerivedType(typeof(ThreatChanged), "threatChanged")]
+[JsonDerivedType(typeof(ThreatTierChanged), "threatTierChanged")]
+[JsonDerivedType(typeof(NoiseMade), "noiseMade")]
+[JsonDerivedType(typeof(ChestOpened), "chestOpened")]
+[JsonDerivedType(typeof(KeyPickedUp), "keyPickedUp")]
+[JsonDerivedType(typeof(ExitUnlocked), "exitUnlocked")]
 public interface IGameEvent;
 
 public sealed record CommandResult(bool Accepted, string? RejectionReason, IReadOnlyList<IGameEvent> Events)
@@ -28,6 +34,8 @@ public sealed record CommandResult(bool Accepted, string? RejectionReason, IRead
 
 public sealed record PlayerInfo(PlayerId Id, string DisplayName);
 
+public sealed record NoiseShare(PlayerId Player, double Share);
+
 // ── Commands ────────────────────────────────────────────────────────────────
 
 public sealed record JoinPlayer(PlayerId Player, string DisplayName) : ICommand;
@@ -37,16 +45,41 @@ public sealed record StartRun : ICommand;
 /// <summary>A player walked through an exit into an adjacent room (detected by the physics layer).</summary>
 public sealed record MovePlayerToRoom(PlayerId Player, RoomId Target) : ICommand;
 
+/// <summary>A player sprinted for this long since the last report (max 1s per report).</summary>
+public sealed record ReportSprint(PlayerId Player, TimeSpan Duration) : ICommand;
+
+/// <summary>Open a chest in the player's room. The physics layer has already checked the player is next to it.</summary>
+public sealed record OpenChest(PlayerId Player, EntityId Chest) : ICommand;
+
+public sealed record PickUpKey(PlayerId Player, EntityId Key) : ICommand;
+
+/// <summary>Use a key on a locked exit of the player's room.</summary>
+public sealed record UnlockExit(PlayerId Player, Direction Side) : ICommand;
+
 // ── Events ──────────────────────────────────────────────────────────────────
 
 public sealed record PlayerJoined(PlayerId Player, string DisplayName) : IGameEvent;
 public sealed record PlayerLeft(PlayerId Player) : IGameEvent;
 
 /// <summary>Carries everything a client needs to build the same dungeon locally.</summary>
-public sealed record RunStarted(ulong Seed, IReadOnlyList<PlayerInfo> Players, DungeonConfig Config) : IGameEvent;
+public sealed record RunStarted(ulong Seed, IReadOnlyList<PlayerInfo> Players, GameConfig Config) : IGameEvent;
 
 /// <param name="FirstVisit">True the first time this player enters this room (cards are drawn on first visits).</param>
 public sealed record PlayerEnteredRoom(PlayerId Player, RoomId Room, bool FirstVisit) : IGameEvent;
 
 /// <summary>A room became known to everyone (shared map knowledge).</summary>
 public sealed record RoomRevealed(RoomId Room) : IGameEvent;
+
+/// <summary>Full threat snapshot: sent periodically and after discrete noisy actions.</summary>
+public sealed record ThreatChanged(double Level, int Tier, IReadOnlyList<NoiseShare> Shares) : IGameEvent;
+
+public sealed record ThreatTierChanged(int Tier) : IGameEvent;
+
+/// <summary>A discrete noisy action (not continuous sprinting). For feedback: rings, sounds.</summary>
+public sealed record NoiseMade(PlayerId Player, double Amount) : IGameEvent;
+
+public sealed record ChestOpened(PlayerId Player, EntityId Chest, int Points) : IGameEvent;
+public sealed record KeyPickedUp(PlayerId Player, EntityId Key) : IGameEvent;
+
+/// <summary>The doorway on <paramref name="Side"/> of <paramref name="Room"/> (and its mirror) is now open.</summary>
+public sealed record ExitUnlocked(PlayerId Player, RoomId Room, Direction Side) : IGameEvent;

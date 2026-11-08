@@ -40,12 +40,13 @@ public class DungeonTests
     [InlineData(2UL)]
     [InlineData(3UL)]
     [InlineData(123456789UL)]
-    public void EveryRoom_IsReachableFromEntrance(ulong seed)
+    public void EveryNonVaultRoom_IsReachableWithoutKeys(ulong seed)
     {
         var map = DungeonGenerator.Generate(seed, Config);
         var floor = map.Floors[0];
         var distances = DungeonGenerator.WalkingDistances(floor, map.GetRoom(map.Entrance));
-        Assert.Equal(Config.Width * Config.Height, distances.Count);
+        Assert.All(map.AllRooms.Where(r => r.Type != RoomType.Vault), r => Assert.True(distances.ContainsKey(r.Id), $"{r} unreachable"));
+        Assert.All(map.AllRooms.Where(r => r.Type == RoomType.Vault), r => Assert.False(distances.ContainsKey(r.Id), $"{r} reachable without a key"));
     }
 
     [Theory]
@@ -81,7 +82,8 @@ public class DungeonTests
     [Fact]
     public void RelicChamber_IsTheFurthestRoom()
     {
-        var map = DungeonGenerator.Generate(11, Config);
+        // Measured on a vault-free map: the relic is placed before vault doors are locked.
+        var map = DungeonGenerator.Generate(11, Config with { RoomWeights = new() { [RoomType.Corridor] = 1 } });
         var floor = map.Floors[0];
         var distances = DungeonGenerator.WalkingDistances(floor, map.GetRoom(map.Entrance));
         var relic = map.AllRooms.Single(r => r.Type == RoomType.RelicChamber);
@@ -92,7 +94,7 @@ public class DungeonTests
     public void ZeroLoopChance_ProducesATree()
     {
         var map = DungeonGenerator.Generate(4, Config with { ExtraConnectionChance = 0 });
-        int connections = map.AllRooms.Sum(r => DirectionExtensions.All.Count(r.IsPassable)) / 2;
+        int connections = map.AllRooms.Sum(r => DirectionExtensions.All.Count(d => r.GetExit(d) != ExitState.None)) / 2;
         Assert.Equal(Config.Width * Config.Height - 1, connections);
     }
 

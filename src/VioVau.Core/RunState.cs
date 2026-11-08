@@ -1,5 +1,6 @@
 using VioVau.Core.Dungeon;
 using VioVau.Core.Random;
+using VioVau.Core.Threat;
 
 namespace VioVau.Core;
 
@@ -21,6 +22,11 @@ public sealed class PlayerState
     public RoomId? Room { get; private set; }
 
     public IReadOnlySet<RoomId> VisitedRooms => _visited;
+
+    /// <summary>Points carried (at risk). Banked only by extracting.</summary>
+    public int CarriedPoints { get; internal set; }
+
+    public int Keys { get; internal set; }
 
     public PlayerState(PlayerId id, string displayName)
     {
@@ -44,12 +50,16 @@ public sealed class RunState
 {
     public const int MaxPlayers = 4;
 
+    /// <summary>Longest sprint a single report may claim (guards against bogus reports).</summary>
+    public static readonly TimeSpan MaxSprintReport = TimeSpan.FromSeconds(1);
+
     private readonly Dictionary<PlayerId, PlayerState> _players = new();
     private readonly List<PlayerId> _joinOrder = new();
     private readonly HashSet<RoomId> _revealed = new();
 
     public RngStreams Rng { get; }
-    public DungeonConfig Config { get; }
+    public GameConfig Config { get; }
+    public ThreatSystem Threat { get; }
     public RunPhase Phase { get; private set; } = RunPhase.Lobby;
     public TimeSpan Elapsed { get; private set; } = TimeSpan.Zero;
 
@@ -61,11 +71,12 @@ public sealed class RunState
 
     public IReadOnlySet<RoomId> RevealedRooms => _revealed;
 
-    public RunState(ulong seed, DungeonConfig? config = null)
+    public RunState(ulong seed, GameConfig? config = null)
     {
         Rng = new RngStreams(seed);
-        Config = config ?? DungeonConfig.Default;
+        Config = config ?? GameConfig.Default;
         Config.Validate();
+        Threat = new ThreatSystem(Config.Threat);
     }
 
     public PlayerState? GetPlayer(PlayerId id) => _players.GetValueOrDefault(id);
@@ -76,6 +87,10 @@ public sealed class RunState
         LeavePlayer c => Leave(c),
         StartRun => Start(),
         MovePlayerToRoom c => Move(c),
+        ReportSprint c => Sprint(c),
+        OpenChest c => Open(c),
+        PickUpKey c => PickUp(c),
+        UnlockExit c => Unlock(c),
         _ => CommandResult.Reject($"Unknown command {command.GetType().Name}."),
     };
 
@@ -86,8 +101,12 @@ public sealed class RunState
         if (Phase != RunPhase.InRun) return Array.Empty<IGameEvent>();
 
         Elapsed += dt;
-        return Array.Empty<IGameEvent>();
+        var events = new List<IGameEvent>();
+        Threat.Tick(dt, events);
+        return events;
     }
+
+    // ── Lobby ───────────────────────────────────────────────────────────────
 
     private CommandResult Join(JoinPlayer c)
     {
@@ -116,7 +135,7 @@ public sealed class RunState
         if (Phase != RunPhase.Lobby) return CommandResult.Reject("The run has already started.");
         if (_players.Count == 0) return CommandResult.Reject("At least one player is needed to start.");
 
-        Dungeon = DungeonGenerator.Generate(Rng.Seed, Config);
+        Dungeon = DungeonGenerator.Generate(Rng.Seed, Config.Dungeon);
         Phase = RunPhase.InRun;
 
         var events = new List<IGameEvent>
@@ -124,17 +143,22 @@ public sealed class RunState
             new RunStarted(Rng.Seed, Players.Select(p => new PlayerInfo(p.Id, p.DisplayName)).ToList(), Config),
         };
         foreach (var player in Players)
+        {
+            Threat.AddPlayer(player.Id);
             events.Add(new PlayerEnteredRoom(player.Id, Dungeon.Entrance, player.EnterRoom(Dungeon.Entrance)));
+        }
         events.AddRange(Reveal(Dungeon.Entrance));
+        events.Add(Threat.Snapshot());
 
         return CommandResult.Ok(events);
     }
 
+    // ── In-run ──────────────────────────────────────────────────────────────
+
     private CommandResult Move(MovePlayerToRoom c)
     {
-        if (Phase != RunPhase.InRun || Dungeon is null) return CommandResult.Reject("Players can only move during a run.");
-        if (GetPlayer(c.Player) is not { Room: { } current } player) return CommandResult.Reject($"{c.Player} is not in the run.");
-        if (!Dungeon.Contains(c.Target)) return CommandResult.Reject($"{c.Target} is outside the dungeon.");
+        if (InRunPlayer(c.Player, out var player, out var current) is { } rejection) return rejection;
+        if (!Dungeon!.Contains(c.Target)) return CommandResult.Reject($"{c.Target} is outside the dungeon.");
         if (current == c.Target) return CommandResult.Reject($"{c.Player} is already in {c.Target}.");
 
         if (DirectionExtensions.Between(current, c.Target) is not { } dir)
@@ -146,6 +170,89 @@ public sealed class RunState
         events.AddRange(Reveal(c.Target));
         return CommandResult.Ok(events);
     }
+
+    private CommandResult Sprint(ReportSprint c)
+    {
+        if (InRunPlayer(c.Player, out _, out var room) is { } rejection) return rejection;
+        if (c.Duration <= TimeSpan.Zero || c.Duration > MaxSprintReport)
+            return CommandResult.Reject($"Sprint reports must be between 0 and {MaxSprintReport.TotalSeconds}s.");
+
+        // Continuous noise: no NoiseMade/snapshot here; the periodic snapshot from Tick carries it.
+        var events = new List<IGameEvent>();
+        Threat.AddPlayerNoise(c.Player, Config.Threat.SprintPerSecond * c.Duration.TotalSeconds, RoomType(room), events);
+        return CommandResult.Ok(events);
+    }
+
+    private CommandResult Open(OpenChest c)
+    {
+        if (InRunPlayer(c.Player, out var player, out var room) is { } rejection) return rejection;
+        if (Dungeon!.GetLoot(c.Chest) is not { Kind: LootKind.Chest } chest) return CommandResult.Reject($"{c.Chest} is not a chest.");
+        if (chest.Room != room) return CommandResult.Reject($"{c.Chest} is not in {c.Player}'s room.");
+        if (chest.Claimed) return CommandResult.Reject($"{c.Chest} is already open.");
+
+        chest.Claimed = true;
+        player.CarriedPoints += chest.Points;
+
+        var events = new List<IGameEvent> { new ChestOpened(c.Player, c.Chest, chest.Points) };
+        MakeNoise(c.Player, Config.Threat.OpenChest, room, events);
+        return CommandResult.Ok(events);
+    }
+
+    private CommandResult PickUp(PickUpKey c)
+    {
+        if (InRunPlayer(c.Player, out var player, out var room) is { } rejection) return rejection;
+        if (Dungeon!.GetLoot(c.Key) is not { Kind: LootKind.Key } key) return CommandResult.Reject($"{c.Key} is not a key.");
+        if (key.Room != room) return CommandResult.Reject($"{c.Key} is not in {c.Player}'s room.");
+        if (key.Claimed) return CommandResult.Reject($"{c.Key} was already taken.");
+
+        key.Claimed = true;
+        player.Keys++;
+
+        var events = new List<IGameEvent> { new KeyPickedUp(c.Player, c.Key) };
+        MakeNoise(c.Player, Config.Threat.PickUpKey, room, events);
+        return CommandResult.Ok(events);
+    }
+
+    private CommandResult Unlock(UnlockExit c)
+    {
+        if (InRunPlayer(c.Player, out var player, out var room) is { } rejection) return rejection;
+        if (Dungeon!.GetRoom(room).GetExit(c.Side) != ExitState.Locked)
+            return CommandResult.Reject($"The {c.Side} exit of {room} is not locked.");
+        if (player.Keys <= 0) return CommandResult.Reject($"{c.Player} has no keys.");
+
+        player.Keys--;
+        Dungeon.SetDoorway(room, c.Side, ExitState.Open);
+
+        var events = new List<IGameEvent> { new ExitUnlocked(c.Player, room, c.Side) };
+        MakeNoise(c.Player, Config.Threat.UnlockExit, room, events);
+        return CommandResult.Ok(events);
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /// <summary>Common checks for in-run player commands. Returns a rejection, or null with the player and their room.</summary>
+    private CommandResult? InRunPlayer(PlayerId id, out PlayerState player, out RoomId room)
+    {
+        player = null!;
+        room = default;
+        if (Phase != RunPhase.InRun || Dungeon is null) return CommandResult.Reject("Only possible during a run.");
+        if (GetPlayer(id) is not { Room: { } current } found) return CommandResult.Reject($"{id} is not in the run.");
+
+        player = found;
+        room = current;
+        return null;
+    }
+
+    /// <summary>Discrete noise: adds threat, then feedback + a fresh snapshot so every HUD updates at once.</summary>
+    private void MakeNoise(PlayerId player, double amount, RoomId room, List<IGameEvent> events)
+    {
+        double added = Threat.AddPlayerNoise(player, amount, RoomType(room), events);
+        if (added <= 0) return;
+        events.Add(new NoiseMade(player, added));
+        events.Add(Threat.Snapshot());
+    }
+
+    private RoomType RoomType(RoomId room) => Dungeon!.GetRoom(room).Type;
 
     private IEnumerable<IGameEvent> Reveal(RoomId room)
     {

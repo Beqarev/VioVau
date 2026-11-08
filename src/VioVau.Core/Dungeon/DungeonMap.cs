@@ -41,18 +41,26 @@ public sealed class Floor
     }
 }
 
-/// <summary>The generated dungeon: floors of room grids. Fully determined by seed + <see cref="DungeonConfig"/>.</summary>
+/// <summary>
+/// The generated dungeon: floors of room grids plus the loot placed in them. Fully determined by
+/// seed + <see cref="DungeonConfig"/>; changes during a run (opened doors, claimed loot) arrive as events.
+/// </summary>
 public sealed class DungeonMap
 {
+    private readonly Dictionary<EntityId, LootItem> _loot;
+
     public IReadOnlyList<Floor> Floors { get; }
 
     /// <summary>The Lobby: where players start and extract.</summary>
     public RoomId Entrance { get; }
 
-    internal DungeonMap(IReadOnlyList<Floor> floors, RoomId entrance)
+    public IReadOnlyCollection<LootItem> Loot => _loot.Values;
+
+    internal DungeonMap(IReadOnlyList<Floor> floors, RoomId entrance, IEnumerable<LootItem> loot)
     {
         Floors = floors;
         Entrance = entrance;
+        _loot = loot.ToDictionary(l => l.Id);
     }
 
     public bool Contains(RoomId id) =>
@@ -64,5 +72,18 @@ public sealed class DungeonMap
         return Floors[id.Floor][id.X, id.Y];
     }
 
+    public Room? Neighbor(RoomId id, Direction side) => Floors[id.Floor].Neighbor(GetRoom(id), side);
+
     public IEnumerable<Room> AllRooms => Floors.SelectMany(f => f.Rooms);
+
+    public LootItem? GetLoot(EntityId id) => _loot.GetValueOrDefault(id);
+
+    public IEnumerable<LootItem> LootIn(RoomId room) => _loot.Values.Where(l => l.Room == room);
+
+    /// <summary>Sets an exit on both sides of a doorway, keeping the map symmetric.</summary>
+    internal void SetDoorway(RoomId room, Direction side, ExitState state)
+    {
+        GetRoom(room).SetExit(side, state);
+        Neighbor(room, side)?.SetExit(side.Opposite(), state);
+    }
 }

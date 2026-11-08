@@ -59,13 +59,16 @@ Every game-state reference uses `PlayerId`, never peer id. Netcode maps `PlayerI
 - **Determinism:** `RunStarted` carries the seed and the `DungeonConfig`; every peer runs `DungeonGenerator` and gets the identical map, so the layout is never sent. The host's state is always the truth.
 - **RunView:** every peer (host included) keeps a `RunView` rebuilt only from events. All visuals read the `RunView`, so host and clients render through the same code path. Only the host also has the `RunState`.
 - **Room changes:** the host watches every character's position; when one crosses into another room's area it applies `MovePlayerToRoom`, which Core validates (adjacent, exit passable).
+- **Interactions:** a local player's Interact press picks the nearest target (unopened chest, locked door of their room) and sends `RequestInteract` to the host. The host re-checks reach against its own copy of that player's position (+12px tolerance for remote players) before applying `OpenChest` / `UnlockExit`. Keys are picked up by the host when a character touches one (`PickUpKey`).
+- **Sprint noise:** owners send an `IsSprinting` flag with their position; the host accumulates sprint time and applies `ReportSprint` every 0.25s (Core caps a report at 1s).
+- **Threat broadcast:** Core emits a `ThreatChanged` snapshot (level, tier, everyone's noise share) every 0.5s from `Tick`, and immediately after discrete noisy actions together with `NoiseMade` (used for the ring effect).
 
 ## 6. Core (`VioVau.Core`)
 
 ```
 RunState            # the whole run: players, dungeon, threat, rng, phase
-  Dungeon           # floors → room grid → rooms, exits (open/locked/sealed/…)
-  ThreatSystem      # meter, tiers, per-player attribution, strike scheduling
+  Dungeon           # floors → room grid → rooms, exits (open/locked/sealed/…), loot (chests, keys)
+  ThreatSystem      # meter, tiers, per-player attribution (decaying), periodic snapshots
   CardSystem        # decks, hands, discard, draw rules, effect resolution
   Economy           # points (carried/banked), keys, loot bags
   Scoring           # extraction, collapse, results
@@ -88,7 +91,8 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
 
 ## 8. Data
 
-- `game/data/dungeon.json` (now); later `cards.json`, `enemies.json`, `threat.json`, `loot_tables.json`, `passives.json`.
+- `game/data/dungeon.json` (layout, room weights, chest rules, keys) and `game/data/threat.json` (meter, tiers, noise amounts) now; later `cards.json`, `enemies.json`, `passives.json`.
+- Both are bundled into a `GameConfig` that the host sends inside `RunStarted`, so every peer runs with the host's numbers.
 - Loaded by Core at startup; schema-validated in tests (a broken card file fails CI, not a playtest).
 - Balancing numbers live in data, not code.
 
@@ -137,7 +141,7 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 |---|---|---|
 | M0 ✅ | Scaffold | Solution, Core + tests, empty Godot project building together |
 | M1 ✅ | Two in a room | 2+ players (online + local) walk around a generated floor and move between rooms |
-| M2 | Noise | Shared Threat, tiers, attribution HUD, loot & chests, keys/locked exits |
+| M2 ✅ | Noise | Shared Threat, tiers, attribution HUD, loot & chests, keys/locked exits |
 | M3 | Cards | Decks, hand of 3, draw rules, 12 cards |
 | M4 | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
 | M5 | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |

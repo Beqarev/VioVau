@@ -12,8 +12,14 @@ public abstract class InputDevice
     public abstract string Key { get; }
     public abstract string Label { get; }
 
+    /// <summary>Short name of the interact button, for prompts.</summary>
+    public abstract string InteractLabel { get; }
+
     public abstract Vector2 ReadMove();
     public abstract bool ReadSprint();
+
+    /// <summary>Whether the interact button is held (edge detection is done by the character).</summary>
+    public abstract bool ReadInteract();
 
     /// <summary>The device whose "join" button this event is, if any.</summary>
     public static InputDevice? FromJoinEvent(InputEvent e) => e switch
@@ -40,16 +46,20 @@ public sealed class KeyboardWasd : InputDevice
 {
     public override string Key => "kb-wasd";
     public override string Label => "Keyboard WASD";
+    public override string InteractLabel => "E";
     public override Vector2 ReadMove() => Keys(Godot.Key.W, Godot.Key.S, Godot.Key.A, Godot.Key.D);
     public override bool ReadSprint() => Godot.Input.IsPhysicalKeyPressed(Godot.Key.Shift);
+    public override bool ReadInteract() => Godot.Input.IsPhysicalKeyPressed(Godot.Key.E);
 }
 
 public sealed class KeyboardArrows : InputDevice
 {
     public override string Key => "kb-arrows";
     public override string Label => "Keyboard Arrows";
+    public override string InteractLabel => "/";
     public override Vector2 ReadMove() => Keys(Godot.Key.Up, Godot.Key.Down, Godot.Key.Left, Godot.Key.Right);
     public override bool ReadSprint() => Godot.Input.IsPhysicalKeyPressed(Godot.Key.Period);
+    public override bool ReadInteract() => Godot.Input.IsPhysicalKeyPressed(Godot.Key.Slash);
 }
 
 public sealed class Gamepad : InputDevice
@@ -62,6 +72,7 @@ public sealed class Gamepad : InputDevice
 
     public override string Key => $"pad-{Device}";
     public override string Label => $"Gamepad {Device + 1}";
+    public override string InteractLabel => "A";
 
     public override Vector2 ReadMove()
     {
@@ -79,6 +90,8 @@ public sealed class Gamepad : InputDevice
 
     public override bool ReadSprint() =>
         Pressed(JoyButton.RightShoulder) || Godot.Input.GetJoyAxis(Device, JoyAxis.TriggerRight) > 0.5f;
+
+    public override bool ReadInteract() => Pressed(JoyButton.A) || Pressed(JoyButton.X);
 
     private bool Pressed(JoyButton button) => Godot.Input.IsJoyButtonPressed(Device, button);
 }

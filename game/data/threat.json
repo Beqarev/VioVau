@@ -1,0 +1,25 @@
+{
+  // The shared Threat meter. All values are first guesses — tune in playtests.
+  "max": 100,
+  "tierThresholds": [0, 15, 35, 55, 75, 100],
+  "tierNames": ["Calm", "Stirring", "Restless", "Hunting", "Furious", "Collapse"],
+
+  // Unattributed drift: +1 every 10s. Stalling is never free.
+  "passivePerSecond": 0.1,
+
+  // Player-made noise (attributed to that player).
+  "sprintPerSecond": 0.35,
+  "openChest": 3,
+  "pickUpKey": 0,
+  "unlockExit": 4,
+
+  // Old noise counts less toward "who is loudest" (half as much every N seconds).
+  "attributionHalfLifeSeconds": 45,
+  "broadcastIntervalSeconds": 0.5,
+
+  // Noise made inside these rooms is multiplied.
+  "roomMultipliers": {
+    "EchoChamber": 2,
+    "HushRoom": 0
+  }
+}

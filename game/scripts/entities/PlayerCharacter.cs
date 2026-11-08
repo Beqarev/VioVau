@@ -20,6 +20,8 @@ public partial class PlayerCharacter : CharacterBody2D
 
     private Vector2 _remoteTarget;
     private double _sendTimer;
+    private bool _wasInteracting;
+    private string? _prompt;
 
     public PlayerId Id { get; private set; }
     public string DisplayName { get; private set; } = "";
@@ -27,8 +29,26 @@ public partial class PlayerCharacter : CharacterBody2D
     public InputDevice? Device { get; private set; }
     public bool IsLocal => Device is not null;
 
+    /// <summary>Moving at sprint speed right now (local: from input; remote: as reported by its owner).</summary>
+    public bool IsSprinting { get; private set; }
+
     /// <summary>Best known true position: our own for local players, the last received one for remote players.</summary>
     public Vector2 AuthoritativePosition => IsLocal ? GlobalPosition : _remoteTarget;
+
+    /// <summary>Raised when this local player presses Interact.</summary>
+    public event Action<PlayerCharacter>? InteractPressed;
+
+    /// <summary>Button hint drawn above the player (e.g. "E"), or null.</summary>
+    public string? Prompt
+    {
+        get => _prompt;
+        set
+        {
+            if (_prompt == value) return;
+            _prompt = value;
+            QueueRedraw();
+        }
+    }
 
     public PlayerCharacter Init(PlayerId id, string displayName, int colorIndex, InputDevice? device, Vector2 spawn)
     {
@@ -57,14 +77,20 @@ public partial class PlayerCharacter : CharacterBody2D
         {
             var move = Device.ReadMove();
             if (move.LengthSquared() > 1f) move = move.Normalized();
-            Velocity = move * (Device.ReadSprint() ? SprintSpeed : WalkSpeed);
+            bool sprintHeld = Device.ReadSprint();
+            Velocity = move * (sprintHeld ? SprintSpeed : WalkSpeed);
             MoveAndSlide();
+            IsSprinting = sprintHeld && GetRealVelocity().Length() > WalkSpeed * 0.5f;
+
+            bool interacting = Device.ReadInteract();
+            if (interacting && !_wasInteracting) InteractPressed?.Invoke(this);
+            _wasInteracting = interacting;
 
             _sendTimer += delta;
             if (_sendTimer >= SendInterval)
             {
                 _sendTimer = 0;
-                NetSession.Instance.SendPlayerState(Id, GlobalPosition, Velocity);
+                NetSession.Instance.SendPlayerState(Id, GlobalPosition, Velocity, IsSprinting);
             }
         }
         else
@@ -75,11 +101,12 @@ public partial class PlayerCharacter : CharacterBody2D
         }
     }
 
-    public void ApplyRemoteState(Vector2 position, Vector2 velocity)
+    public void ApplyRemoteState(Vector2 position, Vector2 velocity, bool sprinting)
     {
         if (IsLocal) return;
         _remoteTarget = position;
         Velocity = velocity;
+        IsSprinting = sprinting;
     }
 
     public override void _Draw()
@@ -90,5 +117,13 @@ public partial class PlayerCharacter : CharacterBody2D
         DrawRect(body.Grow(-1), color);
         DrawString(ThemeDB.FallbackFont, new Vector2(-3, -9), (ColorIndex + 1).ToString(),
             HorizontalAlignment.Left, -1, 8, color);
+
+        if (_prompt is not null)
+        {
+            var box = new Rect2(6, -18, 9, 9);
+            DrawRect(box, Palette.White);
+            DrawString(ThemeDB.FallbackFont, new Vector2(box.Position.X, box.End.Y - 2), _prompt,
+                HorizontalAlignment.Center, box.Size.X, 8, Palette.Void);
+        }
     }
 }

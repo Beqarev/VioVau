@@ -17,3 +17,9 @@ public readonly record struct CardId(string Value)
 {
     public override string ToString() => Value;
 }
+
+/// <summary>A thing placed in the dungeon (chest, key, …). Unique per run.</summary>
+public readonly record struct EntityId(int Value)
+{
+    public override string ToString() => $"E{Value}";
+}

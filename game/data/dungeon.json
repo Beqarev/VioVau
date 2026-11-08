@@ -5,6 +5,7 @@
   // Chance to open each extra wall after the maze is carved (creates loops / alternate routes).
   "extraConnectionChance": 0.2,
   // Relative weights for filler rooms. Lobby and RelicChamber are placed by the generator.
+  // Vault doors are locked (need a key); a Vault that would block the map becomes a Guard Post.
   "roomWeights": {
     "Corridor": 6,
     "Vault": 3,
@@ -12,5 +13,15 @@
     "EchoChamber": 1,
     "HushRoom": 1,
     "Merchant": 1
-  }
+  },
+  // Chests per room type (inclusive ranges). Types not listed get none.
+  "loot": {
+    "Corridor":    { "minChests": 0, "maxChests": 1, "minPoints": 2,  "maxPoints": 6 },
+    "GuardPost":   { "minChests": 1, "maxChests": 2, "minPoints": 6,  "maxPoints": 12 },
+    "Vault":       { "minChests": 2, "maxChests": 3, "minPoints": 15, "maxPoints": 30 },
+    "EchoChamber": { "minChests": 1, "maxChests": 2, "minPoints": 10, "maxPoints": 20 },
+    "HushRoom":    { "minChests": 0, "maxChests": 1, "minPoints": 3,  "maxPoints": 8 }
+  },
+  // Keys placed beyond one per locked Vault.
+  "extraKeys": 1
 }

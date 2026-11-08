@@ -154,7 +154,7 @@ public class MovementTests
         [
             new PlayerJoined(P1, "A"),
             new PlayerLeft(P2),
-            new RunStarted(7, [new PlayerInfo(P1, "A")], DungeonConfig.Default),
+            new RunStarted(7, [new PlayerInfo(P1, "A")], GameConfig.Default),
             new PlayerEnteredRoom(P1, new RoomId(0, 1, 2), true),
             new RoomRevealed(new RoomId(0, 3, 4)),
         ];
@@ -169,7 +169,8 @@ public class MovementTests
         Assert.Equal(events[4], decoded[4]);
         var started = Assert.IsType<RunStarted>(decoded[2]);
         Assert.Equal(7UL, started.Seed);
-        Assert.Equal(DungeonConfig.Default.RoomWeights, started.Config.RoomWeights);
+        Assert.Equal(DungeonConfig.Default.RoomWeights, started.Config.Dungeon.RoomWeights);
+        Assert.Equal(GameConfig.Default.Threat.TierThresholds, started.Config.Threat.TierThresholds);
     }
 
     private static readonly Comparer<RoomId> RoomIdComparer =

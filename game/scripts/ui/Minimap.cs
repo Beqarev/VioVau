@@ -56,10 +56,11 @@ public partial class Minimap : Control
             };
             DrawRect(cell, fill);
 
-            // A stub for every open exit, so exits leading into unexplored rooms are visible too.
+            // A stub for every doorway (white = locked), so exits into unexplored rooms are visible too.
             foreach (var side in DirectionExtensions.All)
             {
-                if (!room.IsPassable(side)) continue;
+                var exit = room.GetExit(side);
+                if (exit == ExitState.None) continue;
                 var c = cell.GetCenter();
                 var link = side switch
                 {
@@ -68,7 +69,7 @@ public partial class Minimap : Control
                     Direction.South => new Rect2(c.X - 1, cell.End.Y, 2, Gap),
                     _ => new Rect2(c.X - 1, cell.Position.Y - Gap, 2, Gap),
                 };
-                DrawRect(link, Palette.Dim);
+                DrawRect(link, exit == ExitState.Locked ? Palette.White : Palette.Dim);
             }
         }
 

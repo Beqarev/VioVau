@@ -57,7 +57,7 @@ Hub (lobby + meta shop) → Descent → Explore / loot / play cards → Grab Rel
 | Move | Walking is quiet. |
 | Sprint | Fast, **generates noise**. |
 | Sneak | Slow, generates no movement noise. |
-| Interact | Open chest/door, pick up, revive. |
+| Interact | Open chest / unlock door (keys are picked up by touch), later revive. Keyboard WASD: `E`, Arrows: `/`, gamepad: `A`. |
 | Basic Attack | Short melee swing / shove that briefly stuns. Noisy. |
 | Use Card 1–3 | Play a card from hand. |
 | Ping | Mark a spot/item for teammates (essential online). |
@@ -106,6 +106,11 @@ When the dungeon **Strikes** (see tiers), its target is **chosen at random, weig
 | 5 Collapse | Max Threat triggers the Collapse countdown (same as first extraction). |
 
 Threat never drops below the current tier's floor except by rare effects — tiers are ratchets.
+
+### 6.4 Implemented (M2)
+- Numbers live in `game/data/threat.json`: passive +0.1/s, sprint 0.35/s, open chest 3, unlock door 4, key pickup 0. Echo Chamber ×2, Hush Room ×0 (player-made noise only; passive drift is unaffected).
+- A player's **noise share** = their attributed noise ÷ everyone's, where attributed noise halves every 45s — so the share reflects *recent* loudness.
+- Tier effects beyond the banner (patrols, shifts, elites, Warden, Collapse countdown) arrive with enemies (M4) and the run end (M5).
 
 ## 7. Cards
 
@@ -168,6 +173,7 @@ Room content is built from **hand-made templates** (layout, spawn points, exit s
 
 - **Points**: loot from chests, enemies, Relics. Spent in-run at Merchants/Shrines; banked on extraction; converted to meta currency.
 - **Standard Keys**: found or bought. Open locked exits and Vaults. Personal, can be dropped/traded/stolen.
+  - *Implemented (M2):* every doorway of a **Vault** is locked. A Vault that would cut other rooms off from the Lobby becomes a Guard Post instead, so exploring never requires a key. The generator places one key per locked Vault + `extraKeys`, only in rooms reachable without keys. Keys are picked up by walking over them; one key opens one doorway (both sides) for everyone.
 - **Void Keys** (rare): open Void Doors.
 - Spending in-run reduces what you can bank — that's intentional: invest to survive vs. hoard to win.
 

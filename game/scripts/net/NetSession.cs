@@ -3,12 +3,22 @@ using Godot;
 using VioVau.Core;
 using VioVau.Core.Dungeon;
 using VioVau.Core.Net;
+using VioVau.Core.Threat;
 using VioVau.Game.Input;
 
 namespace VioVau.Game.Networking;
 
 /// <summary>Who controls which player: the peer (machine) and the local slot (input device) on that machine.</summary>
 public sealed record RosterEntry(int PlayerId, int PeerId, int LocalSlot, string Name);
+
+public enum InteractKind
+{
+    Chest,
+    Door,
+}
+
+/// <summary>What a player wants to interact with: a chest (Value = EntityId) or a locked door (Value = Direction).</summary>
+public readonly record struct InteractTarget(InteractKind Kind, int Value);
 
 /// <summary>
 /// Autoload. Owns the connection, the roster, and — on the host — the authoritative <see cref="RunState"/>.
@@ -21,6 +31,7 @@ public partial class NetSession : Node
     public const string MenuScene = "res://scenes/MainMenu.tscn";
     public const string GameScene = "res://scenes/Game.tscn";
     private const string DungeonConfigPath = "res://data/dungeon.json";
+    private const string ThreatConfigPath = "res://data/threat.json";
 
     public static NetSession Instance { get; private set; } = null!;
 
@@ -42,7 +53,10 @@ public partial class NetSession : Node
     public event Action? RosterChanged;
     public event Action? StatusChanged;
     public event Action<IGameEvent>? EventReceived;
-    public event Action<PlayerId, Vector2, Vector2>? PlayerStateReceived;
+    public event Action<PlayerId, Vector2, Vector2, bool>? PlayerStateReceived;
+
+    /// <summary>Host only: a player (local or remote) asked to interact. The game scene validates range and applies it.</summary>
+    public event Action<PlayerId, InteractTarget>? InteractRequested;
 
     public override void _EnterTree() => Instance = this;
 
@@ -82,7 +96,7 @@ public partial class NetSession : Node
         LocalPlayers.Locked = true;
 
         var seed = (ulong)System.Random.Shared.NextInt64();
-        State = new RunState(seed, LoadDungeonConfig());
+        State = new RunState(seed, LoadGameConfig());
 
         var rejection = AddPlayers(LocalPeerId, LocalPlayers.Names());
         if (rejection is not null) GD.PushError($"[Net] Could not add local players: {rejection}");
@@ -153,18 +167,40 @@ public partial class NetSession : Node
     // ── Player state (positions) ────────────────────────────────────────────
 
     /// <summary>Called by locally controlled characters ~30×/s. Unreliable: a lost packet is replaced by the next one.</summary>
-    public void SendPlayerState(PlayerId player, Vector2 position, Vector2 velocity)
+    public void SendPlayerState(PlayerId player, Vector2 position, Vector2 velocity, bool sprinting)
     {
         if (!IsOnline || Multiplayer.GetPeers().Length == 0) return;
-        Rpc(MethodName.ReceivePlayerState, player.Value, position, velocity);
+        Rpc(MethodName.ReceivePlayerState, player.Value, position, velocity, sprinting);
     }
 
     [Rpc(MultiplayerApi.RpcMode.AnyPeer, TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered, TransferChannel = 1)]
-    private void ReceivePlayerState(int playerId, Vector2 position, Vector2 velocity)
+    private void ReceivePlayerState(int playerId, Vector2 position, Vector2 velocity, bool sprinting)
+    {
+        if (!SenderOwns(playerId)) return;
+        PlayerStateReceived?.Invoke(new PlayerId(playerId), position, velocity, sprinting);
+    }
+
+    // ── Interactions ────────────────────────────────────────────────────────
+
+    /// <summary>Ask the host to interact. On the host this goes straight to the game scene.</summary>
+    public void RequestInteract(PlayerId player, InteractTarget target)
+    {
+        if (IsHost) InteractRequested?.Invoke(player, target);
+        else if (IsOnline) RpcId(1, MethodName.ReceiveInteract, player.Value, (int)target.Kind, target.Value);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.AnyPeer, TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+    private void ReceiveInteract(int playerId, int kind, int value)
+    {
+        if (!IsHost || !SenderOwns(playerId) || !Enum.IsDefined(typeof(InteractKind), kind)) return;
+        InteractRequested?.Invoke(new PlayerId(playerId), new InteractTarget((InteractKind)kind, value));
+    }
+
+    /// <summary>Whether the peer that sent the current RPC controls this player.</summary>
+    private bool SenderOwns(int playerId)
     {
         int sender = Multiplayer.GetRemoteSenderId();
-        if (!_roster.Any(r => r.PlayerId == playerId && r.PeerId == sender)) return; // not theirs to move
-        PlayerStateReceived?.Invoke(new PlayerId(playerId), position, velocity);
+        return _roster.Any(r => r.PlayerId == playerId && r.PeerId == sender);
     }
 
     // ── Lobby / roster ──────────────────────────────────────────────────────
@@ -292,16 +328,20 @@ public partial class NetSession : Node
         StatusChanged?.Invoke();
     }
 
-    private static DungeonConfig LoadDungeonConfig()
+    private static GameConfig LoadGameConfig() =>
+        new(Load(DungeonConfigPath, DungeonConfig.FromJson, DungeonConfig.Default),
+            Load(ThreatConfigPath, ThreatConfig.FromJson, ThreatConfig.Default));
+
+    private static T Load<T>(string path, Func<string, T> parse, T fallback)
     {
         try
         {
-            return DungeonConfig.FromJson(Godot.FileAccess.GetFileAsString(DungeonConfigPath));
+            return parse(Godot.FileAccess.GetFileAsString(path));
         }
         catch (Exception ex)
         {
-            GD.PushError($"[Net] Failed to load {DungeonConfigPath}, using defaults: {ex.Message}");
-            return DungeonConfig.Default;
+            GD.PushError($"[Net] Failed to load {path}, using defaults: {ex.Message}");
+            return fallback;
         }
     }
 }
