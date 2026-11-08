@@ -1,5 +1,6 @@
 using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
+using VioVau.Core.Enemies;
 
 namespace VioVau.Core;
 
@@ -30,7 +31,7 @@ public sealed partial class RunState
     {
         foreach (var player in Players)
         {
-            if (player.Deck is null) continue;
+            if (player.Deck is null || !player.Active) continue;
             if (player.Deck.HandFull)
             {
                 player.DrawTimer = 0;
@@ -57,6 +58,7 @@ public sealed partial class RunState
 
         if (CheckTarget(card, player, room, c) is { } targetRejection) return targetRejection;
         var target = c.TargetPlayer is { } t ? GetPlayer(t) : null;
+        var enemy = c.TargetEnemy is { } e ? _enemies.GetValueOrDefault(e) : null;
 
         var events = new List<IGameEvent>();
         player.Deck.Discard(c.Slot);
@@ -65,7 +67,7 @@ public sealed partial class RunState
         events.Add(DeckState(player));
 
         MakeNoise(c.Player, card.Noise, room, events);
-        foreach (var effect in card.Effects) ApplyEffect(effect, player, target, room, c.TargetDoor, events);
+        foreach (var effect in card.Effects) ApplyEffect(effect, player, target, enemy, room, c.TargetDoor, events);
 
         return CommandResult.Ok(events);
     }
@@ -81,21 +83,51 @@ public sealed partial class RunState
                 break;
 
             case CardTarget.NearbyPlayer or CardTarget.OtherPlayer:
-                if (c.TargetPlayer is not { } targetId || targetId == player.Id || GetPlayer(targetId) is not { Room: not null } target)
+                if (c.TargetPlayer is not { } targetId || targetId == player.Id || GetPlayer(targetId) is not { Room: not null, Dead: false } target)
                     return CommandResult.Reject($"{card.Name} needs another player as a target.");
                 if (card.Effects.Any(e => e.Type == EffectType.Steal) && target.Keys == 0 && target.CarriedPoints == 0)
                     return CommandResult.Reject($"{target.DisplayName} has nothing to steal.");
+                break;
+
+            case CardTarget.NearbyEnemy:
+                if (c.TargetEnemy is not { } enemyId || _enemies.GetValueOrDefault(enemyId) is not { Alive: true } enemy)
+                    return CommandResult.Reject($"{card.Name} needs an enemy in reach.");
+                if (card.Effects.Any(e => e.Type == EffectType.KillEnemy) && !enemy.Killable)
+                    return CommandResult.Reject("The Warden cannot be destroyed.");
+                break;
+
+            case CardTarget.DownedPlayer:
+                if (c.TargetPlayer is not { } downedId || GetPlayer(downedId) is not { Downed: true } downed || downed.Room != room)
+                    return CommandResult.Reject($"{card.Name} needs a downed ally in this room.");
                 break;
         }
         return null;
     }
 
-    private void ApplyEffect(CardEffect effect, PlayerState player, PlayerState? target, RoomId room, Direction? door, List<IGameEvent> events)
+    private void ApplyEffect(CardEffect effect, PlayerState player, PlayerState? target, EnemyState? enemy, RoomId room, Direction? door, List<IGameEvent> events)
     {
         switch (effect.Type)
         {
             case EffectType.Dash or EffectType.Blink:
+                if (effect.Type == EffectType.Dash) GrantInvulnerability(player, Enemies.Health.DashInvulnerableSeconds);
                 events.Add(new MovementEffect(player.Id, effect.Type, effect.Amount));
+                break;
+
+            case EffectType.StunEnemies:
+                events.Add(new EnemiesStunned(player.Id, room, effect.Amount));
+                break;
+
+            case EffectType.Decoy:
+                events.Add(new DecoyPlaced(player.Id, room, effect.Amount));
+                break;
+
+            case EffectType.KillEnemy when enemy is { Alive: true, Killable: true }:
+                enemy.Alive = false;
+                events.Add(new EnemyKilled(enemy.Id, player.Id));
+                break;
+
+            case EffectType.Revive when target is { Downed: true }:
+                RaiseUp(target, player, events);
                 break;
 
             case EffectType.Silence:

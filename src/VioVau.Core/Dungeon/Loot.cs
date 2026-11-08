@@ -6,6 +6,8 @@ public enum LootKind
     Key,
     /// <summary>A card on a lectern (Library, free) or a pedestal (Merchant, costs <see cref="LootItem.Price"/>).</summary>
     Card,
+    /// <summary>A dead player's dropped points (<see cref="LootItem.Points"/>) and keys (<see cref="LootItem.Keys"/>).</summary>
+    Bag,
 }
 
 /// <summary>A chest or key lying in a room. Claimed once opened / picked up.</summary>
@@ -24,6 +26,9 @@ public sealed class LootItem
 
     /// <summary>Points it costs to take (Merchant cards; 0 = free).</summary>
     public int Price { get; }
+
+    /// <summary>Keys inside (loot bags).</summary>
+    public int Keys { get; init; }
 
     public bool Claimed { get; internal set; }
 

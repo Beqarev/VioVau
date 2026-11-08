@@ -23,3 +23,8 @@ public readonly record struct EntityId(int Value)
 {
     public override string ToString() => $"E{Value}";
 }
+
+public readonly record struct EnemyId(int Value)
+{
+    public override string ToString() => $"N{Value}";
+}

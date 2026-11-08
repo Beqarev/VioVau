@@ -67,6 +67,14 @@ Hub (lobby + meta shop) → Descent → Explore / loot / play cards → Grab Rel
 - At 0 hearts you are **Downed** for 20s **[TUNE]**: crawl slowly, can't act. An ally can **revive** you (hold Interact, noisy) — you come back at 1 heart.
 - If not revived: you **die**, drop your **Loot Bag** (all carried Points, keys, Relic) in the room. **Anyone can pick it up.** You then spectate **[OPEN: ghost mechanics later]**.
 
+### 5.2b Implemented (M4)
+- Numbers in `game/data/enemies.json` (`health`): 3 hearts, 1.2s invulnerability after a hit, Dash grants 0.35s, 20s bleed-out, revive to 1 heart.
+- **Downed** players crawl (22 px/s), can't sprint, interact or play cards. Enemies ignore them.
+- **Reviving** by hand: stand beside them and press Interact; it takes **1.5s** and fails if you step away or go down (progress ring shown to everyone). Makes noise (+2). The **Rally** card revives instantly from anywhere in the room.
+- **Death** drops a loot bag (all carried points and keys) where you last got hit; anyone can pick it up with Interact. Dead players spectate a teammate.
+- If nobody is left standing, everyone downed dies and the run ends.
+- No player basic attack yet — combat is avoidance plus cards (Flash Powder, Shatter, Decoy, Dash).
+
 ### 5.3 Carried vs. banked
 - Everything picked up during a run is **carried** (at risk).
 - Points are **banked** only by extracting.
@@ -107,6 +115,12 @@ When the dungeon **Strikes** (see tiers), its target is **chosen at random, weig
 
 Threat never drops below the current tier's floor except by rare effects — tiers are ratchets.
 
+### 6.3b Implemented (M4)
+- **Enemies:** Hollow Sentries guard Guard Posts (1–2), Vaults (0–1) and the Relic Chamber (1) from the start. They patrol, notice walking players at 85px in their room, sprinting players at 140px (noise carries a little through doorways), Hushed players only at 30px; chase through open doorways (not locked ones); wind up a visible chop (eyes flare, "!") and hit within 20px; give up after 3s without noticing you.
+- **Strikes:** from Stirring on, every 40 / 28 / 20 / 15 / 12 s (by tier) a Sentry comes in through a doorway of one player's room, picked at random **weighted by noise**. Cap of 16 enemies.
+- **The Warden** awakens once at Furious, in the reachable room farthest from the loudest player, and hunts whoever is loudest: slower than walking (58 px/s), unkillable, barely stunned, never fooled by Decoys.
+- Patrol speeds up / vault shifting / elites at higher tiers are not in yet.
+
 ### 6.4 Implemented (M2)
 - Numbers live in `game/data/threat.json`: passive +0.1/s, sprint 0.35/s, open chest 3, unlock door 4, key pickup 0. Echo Chamber ×2, Hush Room ×0 (player-made noise only; passive drift is unaffected).
 - A player's **noise share** = their attributed noise ÷ everyone's, where attributed noise halves every 45s — so the share reflects *recent* loudness.
@@ -128,7 +142,7 @@ Threat never drops below the current tier's floor except by rare effects — tie
 - **Hands are secret**: drawn cards are only sent to their owner's machine; the hand *count* and every *played* card are public (the played card's name floats above the player).
 - Targets are chosen by the host: a locked door in reach (Lockpick), the player beside you (Pickpocket), or the nearest player anywhere (Scapegoat, Shared Fortune). A card that can't do anything is refused and stays in hand, with a short message to that player.
 - **Library**: 3 free cards on lecterns, one per player. **Merchant**: 3 cards for carried points. Gained cards go to the discard pile.
-- 12 cards so far; Flash Powder, Shatter, Decoy, Rally wait for enemies/downed (M4).
+- 16 cards (M4 added Flash Powder, Shatter, Decoy, Rally). Starter deck is now Dash ×2, Hush, Lantern, Flash Powder, Lockpick, Rally.
 
 ### 7.2 Card anatomy
 `Name · Category · Noise · Rarity · Price · Effect · (Target)`

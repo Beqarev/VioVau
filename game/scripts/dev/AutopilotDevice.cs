@@ -7,9 +7,10 @@ using VioVau.Game.World;
 namespace VioVau.Game.Dev;
 
 /// <summary>
-/// Dev-only "player" for automated play-tests. In each room it grabs keys, opens chests, takes free / affordable
-/// cards, opens a locked door (key or Lockpick), plays a card every few seconds, then leaves through an open exit
-/// (avoiding immediate backtracking). Always sprints.
+/// Dev-only "player" for automated play-tests. Priorities each frame: revive a downed ally in the room; deal with
+/// a Sentry that's too close (Flash Powder, Shatter, Decoy, or run); grab keys / chests / bags / affordable cards;
+/// open a locked door (key or Lockpick); then leave through an open exit (avoiding immediate backtracking).
+/// Plays a casual card every few seconds. Always sprints.
 /// </summary>
 public sealed class AutopilotDevice : InputDevice
 {
@@ -23,6 +24,8 @@ public sealed class AutopilotDevice : InputDevice
     private readonly RunView _view;
     private readonly PlayerId _player;
     private readonly Func<Vector2> _position;
+    private readonly Func<PlayerId, Vector2?> _positionOf;
+    private readonly Func<Vector2, Vector2?> _nearestEnemy;
     private readonly System.Random _random = new(1234); // dev tool only; not game-rule randomness
     private readonly Dictionary<EntityId, int> _attempts = new();
 
@@ -34,11 +37,15 @@ public sealed class AutopilotDevice : InputDevice
     private int _pulse;
     private ulong _nextCardAt = 3000;
 
-    public AutopilotDevice(RunView view, PlayerId player, Func<Vector2> position)
+    /// <param name="positionOf">Where a (living) player is.</param>
+    /// <param name="nearestEnemy">The nearest enemy to a point, if any.</param>
+    public AutopilotDevice(RunView view, PlayerId player, Func<Vector2> position, Func<PlayerId, Vector2?> positionOf, Func<Vector2, Vector2?> nearestEnemy)
     {
         _view = view;
         _player = player;
         _position = position;
+        _positionOf = positionOf;
+        _nearestEnemy = nearestEnemy;
         _room = view.Dungeon.Entrance;
     }
 
@@ -66,6 +73,38 @@ public sealed class AutopilotDevice : InputDevice
             _previousRoom = _room;
             _room = room;
             _exitTarget = null;
+        }
+
+        if (me.Downed || me.Dead) return Vector2.Zero;
+
+        // 0a. A downed ally anywhere: head to them and revive by hand (Rally only if an enemy is close).
+        foreach (var other in _view.Players.Select(p => _view.Player(p.Id)!).Where(p => p.Downed && p.Info.Id != _player))
+        {
+            if (_positionOf(other.Info.Id) is not { } at) continue;
+            bool sameRoom = WorldLayout.RoomAt(0, at) == room;
+            int rally = SlotOf(me, "rally");
+            bool danger = _nearestEnemy(pos) is { } threat && pos.DistanceTo(threat) < 30f;
+            if (sameRoom && danger && rally >= 0 && _pulse++ % 2 == 0)
+            {
+                _pressCard = rally;
+                return Vector2.Zero;
+            }
+            if (pos.DistanceTo(at) > Arrive)
+                return RoomNavigator.NextWaypoint(_view.Dungeon, pos, at) is { } next ? (next - pos).Normalized() : Vector2.Zero;
+            PulseInteract();
+            return Vector2.Zero;
+        }
+
+        // 0b. A Sentry too close: stun it, break it, distract it — or run.
+        if (_nearestEnemy(pos) is { } enemy && pos.DistanceTo(enemy) < 40f)
+        {
+            int flash = SlotOf(me, "flash-powder"), shatter = SlotOf(me, "shatter"), decoy = SlotOf(me, "decoy");
+            if (shatter >= 0 && pos.DistanceTo(enemy) < 26f) _pressCard = shatter;
+            else if (flash >= 0) _pressCard = flash;
+            else if (decoy >= 0) _pressCard = decoy;
+            var away = (pos - enemy).Normalized();
+            // Run away, but slide along walls toward the room's middle so we don't pin ourselves in a corner.
+            return (away + (WorldLayout.RoomCenter(room) - pos).Normalized() * 0.6f).Normalized();
         }
 
         MaybePlayCasualCard(me);
@@ -120,6 +159,8 @@ public sealed class AutopilotDevice : InputDevice
     }
 
     private void PulseInteract() => _interact = _pulse++ % 2 == 0;
+
+    private static int SlotOf(PlayerView me, string card) => Array.FindIndex(me.Hand, c => c?.Value == card);
 
     private Vector2? PickExit(Room room)
     {

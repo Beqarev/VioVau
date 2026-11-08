@@ -35,6 +35,14 @@ public static class WorldLayout
         return RoomOrigin(room) + new Vector2(LootMargin, LootMargin) + new Vector2(point.X * usable.X, point.Y * usable.Y);
     }
 
+    /// <summary>Inverse of <see cref="LootPosition"/>: a world position as a normalized point in its room (clamped).</summary>
+    public static RoomPoint ToRoomPoint(RoomId room, Vector2 world)
+    {
+        var usable = RoomSize - new Vector2(LootMargin, LootMargin) * 2;
+        var local = world - RoomOrigin(room) - new Vector2(LootMargin, LootMargin);
+        return new RoomPoint(Mathf.Clamp(local.X / usable.X, 0f, 1f), Mathf.Clamp(local.Y / usable.Y, 0f, 1f));
+    }
+
     /// <summary>World position of the middle of a doorway, on the room's edge.</summary>
     public static Vector2 DoorCenter(RoomId room, Direction side)
     {

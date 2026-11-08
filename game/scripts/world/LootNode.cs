@@ -57,8 +57,8 @@ public partial class LootNode : Node2D
     /// <summary>Call after the item was claimed.</summary>
     public void Refresh()
     {
-        if (Item.Kind is LootKind.Key && Item.Claimed) Visible = false;
-        SetProcess(Item.Kind == LootKind.Key && !Item.Claimed);
+        if (Item.Kind is LootKind.Key or LootKind.Bag && Item.Claimed) Visible = false;
+        SetProcess(Item.Kind is LootKind.Key or LootKind.Bag && !Item.Claimed);
         QueueRedraw();
     }
 
@@ -76,6 +76,7 @@ public partial class LootNode : Node2D
             case LootKind.Chest: DrawChest(); break;
             case LootKind.Key: DrawKey(); break;
             case LootKind.Card: DrawCardOffer(); break;
+            case LootKind.Bag: DrawBag(); break;
         }
     }
 
@@ -114,6 +115,29 @@ public partial class LootNode : Node2D
         DrawCircle(Vector2.Zero, 4f, new Color(Palette.Void, 0.5f));
         DrawSetTransform(Vector2.Zero, 0, Vector2.One);
         DrawTexture(_key, new Vector2(-size.X / 2f, -size.Y + 1 + bob));
+    }
+
+    /// <summary>A fallen player's sack: everything they carried, for whoever gets there first.</summary>
+    private void DrawBag()
+    {
+        DrawSetTransform(new Vector2(0, 3), 0, new Vector2(1f, 0.4f));
+        DrawCircle(Vector2.Zero, 6f, new Color(Palette.Void, 0.5f));
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
+
+        DrawCircle(new Vector2(0, -3), 5f, Palette.Void);
+        DrawCircle(new Vector2(0, -3), 4f, Palette.WallEdge);
+        DrawRect(new Rect2(-2, -9, 4, 2), Palette.Void);
+        DrawRect(new Rect2(-1, -10, 2, 1), Palette.Wall);
+        // A glint of treasure that pulses.
+        float glint = 0.6f + 0.4f * Mathf.Sin((float)_time * 4f);
+        DrawRect(new Rect2(1, -5, 1, 1), new Color(Palette.White, glint));
+
+        if (_highlighted)
+        {
+            DrawBrackets(new Rect2(-7, -11, 14, 13));
+            var label = Item.Keys > 0 ? $"{Item.Points}p  K{Item.Keys}" : $"{Item.Points}p";
+            DrawString(ThemeDB.FallbackFont, new Vector2(-20, -14), label, HorizontalAlignment.Center, 40, 8, Palette.White);
+        }
     }
 
     /// <summary>A card on a lectern (Library) or pedestal (Merchant, with a price tag).</summary>

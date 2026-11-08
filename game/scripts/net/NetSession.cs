@@ -3,6 +3,7 @@ using Godot;
 using VioVau.Core;
 using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
+using VioVau.Core.Enemies;
 using VioVau.Core.Net;
 using VioVau.Core.Threat;
 using VioVau.Game.Input;
@@ -15,6 +16,10 @@ public sealed record RosterEntry(int PlayerId, int PeerId, int LocalSlot, string
 public enum InteractKind
 {
     Chest,
+    /// <summary>A downed ally; Value = PlayerId.</summary>
+    Revive,
+    /// <summary>A dead player's loot bag; Value = EntityId.</summary>
+    Bag,
     /// <summary>A card offer (Library / Merchant); Value = EntityId.</summary>
     Card,
     Door,
@@ -36,6 +41,7 @@ public partial class NetSession : Node
     private const string DungeonConfigPath = "res://data/dungeon.json";
     private const string ThreatConfigPath = "res://data/threat.json";
     private const string CardsConfigPath = "res://data/cards.json";
+    private const string EnemiesConfigPath = "res://data/enemies.json";
 
     public static NetSession Instance { get; private set; } = null!;
 
@@ -67,6 +73,9 @@ public partial class NetSession : Node
 
     /// <summary>A short message for one of this machine's players (e.g. why a card couldn't be played).</summary>
     public event Action<PlayerId, string>? PlayerNotified;
+
+    /// <summary>Clients: the host's latest enemy positions and animation states.</summary>
+    public event Action<int[], Vector2[], int[]>? EnemyStatesReceived;
 
     public override void _EnterTree() => Instance = this;
 
@@ -106,7 +115,21 @@ public partial class NetSession : Node
         LocalPlayers.Locked = true;
 
         var seed = Dev.DevOptions.Seed ?? (ulong)System.Random.Shared.NextInt64();
-        State = new RunState(seed, LoadGameConfig());
+        var config = LoadGameConfig();
+        if (Dev.DevOptions.Brutal)
+        {
+            var enemies = config.EnemySet;
+            config = config with
+            {
+                Enemies = enemies with
+                {
+                    Health = enemies.Health with { Hearts = 1, ReviveHearts = 1 },
+                    Sentry = enemies.Sentry with { ChaseSpeed = 150, SightRadius = 220, HearingRadius = 260 },
+                    StrikeIntervals = [8],
+                },
+            };
+        }
+        State = new RunState(seed, config);
 
         var rejection = AddPlayers(LocalPeerId, LocalPlayers.Names());
         if (rejection is not null) GD.PushError($"[Net] Could not add local players: {rejection}");
@@ -189,6 +212,30 @@ public partial class NetSession : Node
         if (!SenderOwns(playerId)) return;
         PlayerStateReceived?.Invoke(new PlayerId(playerId), position, velocity, sprinting);
     }
+
+    /// <summary>Clients and host: how far along a revive is (0 = none/cancelled, 1 = done), for the progress ring.</summary>
+    public event Action<PlayerId, float>? ReviveProgress;
+
+    /// <summary>Host only: share a revive channel's progress with everyone.</summary>
+    public void SendReviveProgress(PlayerId target, float progress)
+    {
+        ReviveProgress?.Invoke(target, progress);
+        if (IsHost && Multiplayer.GetPeers().Length > 0) Rpc(MethodName.ReceiveReviveProgress, target.Value, progress);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered, TransferChannel = 2)]
+    private void ReceiveReviveProgress(int target, float progress) => ReviveProgress?.Invoke(new PlayerId(target), progress);
+
+    /// <summary>Host only: every enemy's position and packed animation state, ~15×/s, unreliable.</summary>
+    public void SendEnemyStates(int[] ids, Vector2[] positions, int[] states)
+    {
+        if (!IsHost || Multiplayer.GetPeers().Length == 0) return;
+        Rpc(MethodName.ReceiveEnemyStates, ids, positions, states);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority, TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered, TransferChannel = 2)]
+    private void ReceiveEnemyStates(int[] ids, Vector2[] positions, int[] states) =>
+        EnemyStatesReceived?.Invoke(ids, positions, states);
 
     // ── Interactions ────────────────────────────────────────────────────────
 
@@ -386,7 +433,8 @@ public partial class NetSession : Node
     private static GameConfig LoadGameConfig() =>
         new(Load(DungeonConfigPath, DungeonConfig.FromJson, DungeonConfig.Default),
             Load(ThreatConfigPath, ThreatConfig.FromJson, ThreatConfig.Default),
-            Load(CardsConfigPath, CardsConfig.FromJson, CardsConfig.Default));
+            Load(CardsConfigPath, CardsConfig.FromJson, CardsConfig.Default),
+            Load(EnemiesConfigPath, EnemiesConfig.FromJson, EnemiesConfig.Default));
 
     private static T Load<T>(string path, Func<string, T> parse, T fallback)
     {

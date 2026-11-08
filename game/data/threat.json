@@ -12,6 +12,7 @@
   "openChest": 3,
   "pickUpKey": 0,
   "unlockExit": 4,
+  "revive": 2,
 
   // Old noise counts less toward "who is loudest" (half as much every N seconds).
   "attributionHalfLifeSeconds": 45,

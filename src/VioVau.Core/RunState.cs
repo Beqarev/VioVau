@@ -1,5 +1,6 @@
 using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
+using VioVau.Core.Enemies;
 using VioVau.Core.Random;
 using VioVau.Core.Threat;
 
@@ -43,6 +44,22 @@ public sealed class PlayerState
 
     /// <summary>Card offers taken per room (Library limit).</summary>
     internal Dictionary<RoomId, int> OffersTaken { get; } = new();
+
+    public int Hearts { get; internal set; }
+
+    /// <summary>At 0 hearts: crawling, can't act, waiting for a revive before bleeding out.</summary>
+    public bool Downed { get; internal set; }
+
+    public bool Dead { get; internal set; }
+
+    /// <summary>Not downed and not dead: can act, be hit, be targeted.</summary>
+    public bool Active => !Downed && !Dead;
+
+    internal double BleedRemaining { get; set; }
+    public TimeSpan InvulnerableUntil { get; internal set; }
+
+    /// <summary>Where the player last got hit (their loot bag drops here).</summary>
+    internal RoomPoint LastPoint { get; set; } = new(0.5f, 0.5f);
 
     public PlayerState(PlayerId id, string displayName)
     {
@@ -104,6 +121,9 @@ public sealed partial class RunState
         StartRun => Start(),
         MovePlayerToRoom c => Move(c),
         ReportSprint c => Sprint(c),
+        HitPlayer c => Hit(c),
+        RevivePlayer c => Revive(c),
+        ClaimBag c => Claim(c),
         OpenChest c => Open(c),
         PickUpKey c => PickUp(c),
         UnlockExit c => Unlock(c),
@@ -122,6 +142,7 @@ public sealed partial class RunState
         var events = new List<IGameEvent>();
         Threat.Tick(dt, events);
         TickDraws(dt, events);
+        TickDanger(dt, events);
         return events;
     }
 
@@ -168,7 +189,12 @@ public sealed partial class RunState
         }
         events.AddRange(Reveal(Dungeon.Entrance));
         events.Add(Threat.Snapshot());
-        foreach (var player in Players) DealStartingHand(player, events);
+        foreach (var player in Players)
+        {
+            player.Hearts = Enemies.Health.Hearts;
+            DealStartingHand(player, events);
+        }
+        SpawnGuards(events);
 
         return CommandResult.Ok(events);
     }
@@ -177,7 +203,7 @@ public sealed partial class RunState
 
     private CommandResult Move(MovePlayerToRoom c)
     {
-        if (InRunPlayer(c.Player, out var player, out var current) is { } rejection) return rejection;
+        if (InRunPlayer(c.Player, out var player, out var current, requireActive: false) is { } rejection) return rejection;
         if (!Dungeon!.Contains(c.Target)) return CommandResult.Reject($"{c.Target} is outside the dungeon.");
         if (current == c.Target) return CommandResult.Reject($"{c.Player} is already in {c.Target}.");
 
@@ -247,12 +273,15 @@ public sealed partial class RunState
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     /// <summary>Common checks for in-run player commands. Returns a rejection, or null with the player and their room.</summary>
-    private CommandResult? InRunPlayer(PlayerId id, out PlayerState player, out RoomId room)
+    /// <param name="requireActive">Reject downed players too (dead players are always rejected).</param>
+    private CommandResult? InRunPlayer(PlayerId id, out PlayerState player, out RoomId room, bool requireActive = true)
     {
         player = null!;
         room = default;
         if (Phase != RunPhase.InRun || Dungeon is null) return CommandResult.Reject("Only possible during a run.");
         if (GetPlayer(id) is not { Room: { } current } found) return CommandResult.Reject($"{id} is not in the run.");
+        if (found.Dead) return CommandResult.Reject($"{found.DisplayName} is dead.");
+        if (requireActive && found.Downed) return CommandResult.Reject($"{found.DisplayName} is down.");
 
         player = found;
         room = current;

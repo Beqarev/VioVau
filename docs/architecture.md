@@ -63,6 +63,9 @@ Every game-state reference uses `PlayerId`, never peer id. Netcode maps `PlayerI
 - **Sprint noise:** owners send an `IsSprinting` flag with their position; the host accumulates sprint time and applies `ReportSprint` every 0.25s (Core caps a report at 1s).
 - **Private events:** events implementing `IPrivateEvent` (drawn cards, deck counts, gained cards) are sent only to the machine owning that player (`EventVisibility.For` per peer); everything else goes to everyone, in order. The host handles its own share locally.
 - **Cards:** clients send only "play slot N" (`RequestPlayCard`). The host looks up the card, finds its target from its own positions, and applies `PlayCard`; rejections come back as a private `NotifyPlayer` message. Dash/Blink arrive as `MovementEffect` and are performed by the owning machine.
+- **Enemies:** Core owns which enemies exist (`EnemySpawned`, `EnemyKilled`), Strikes, the Warden and all health rules. The **host** runs each enemy's AI in Godot (`EnemyNode` + `RoomNavigator` for doorway-to-doorway paths) and reports connecting attacks as `HitPlayer`; clients get positions + animation state ~15×/s (`SendEnemyStates`, unreliable) and only display. `RunView.Enemies` keeps spawn records so a scene loading after the spawn events can still create them.
+- **Physical card effects** (`EnemiesStunned`, `DecoyPlaced`, `MovementEffect`) are events the host AI / owning machine acts on; targets (nearby enemy, downed ally) are chosen by the host.
+- **Reviving** by hand is a 1.5s channel tracked by the host's game scene (progress broadcast for the ring); it ends in a `RevivePlayer` command.
 - **Threat broadcast:** Core emits a `ThreatChanged` snapshot (level, tier, everyone's noise share) every 0.5s from `Tick`, and immediately after discrete noisy actions together with `NoiseMade` (used for the ring effect).
 
 ## 6. Core (`VioVau.Core`)
@@ -72,6 +75,7 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
   Dungeon           # floors → room grid → rooms, exits (open/locked/sealed/…), loot (chests, keys)
   ThreatSystem      # meter, tiers, per-player attribution (decaying), periodic snapshots
   Cards             # CardsConfig (data), PlayerDeck (draw / hand slots / discard); RunState.Cards.cs = rules + effects
+  Enemies           # EnemiesConfig (spawns, strikes, Warden, health, AI tuning), EnemyState; RunState.Danger.cs = rules
   CardSystem        # decks, hands, discard, draw rules, effect resolution
   Economy           # points (carried/banked), keys, loot bags
   Scoring           # extraction, collapse, results
@@ -94,7 +98,7 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
 
 ## 8. Data
 
-- `game/data/dungeon.json` (layout, room weights, chest rules, keys), `game/data/threat.json` (meter, tiers, noise amounts) and `game/data/cards.json` (hand size, draw timer, starter deck, offers, the cards) now; later `enemies.json`, `passives.json`.
+- `game/data/dungeon.json` (layout, room weights, chest rules, keys), `game/data/threat.json` (meter, tiers, noise amounts) and `game/data/cards.json` (hand size, draw timer, starter deck, offers, the cards) and `game/data/enemies.json` (spawns, strikes, Warden, health, AI tuning) now; later `passives.json`.
 - Both are bundled into a `GameConfig` that the host sends inside `RunStarted`, so every peer runs with the host's numbers.
 - Loaded by Core at startup; schema-validated in tests (a broken card file fails CI, not a playtest).
 - Balancing numbers live in data, not code.
@@ -146,7 +150,7 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 | M1 ✅ | Two in a room | 2+ players (online + local) walk around a generated floor and move between rooms |
 | M2 ✅ | Noise | Shared Threat, tiers, attribution HUD, loot & chests, keys/locked exits |
 | M3 ✅ | Cards | Decks, hand of 3, draw rules, 12 cards |
-| M4 | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
+| M4 ✅ | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
 | M5 | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |
 | M6 | Hub & meta | Lobby hub, profiles, passive cards, saves |
 | M7 | Content | More rooms, cards, enemies, floors |

@@ -46,10 +46,10 @@ public class CardTests
     // ── Data ────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void GameCards_LoadAndHaveTwelveCards()
+    public void GameCards_Load()
     {
-        Assert.Equal(12, GameCards.Cards.Count);
-        Assert.Equal(6, GameCards.StarterDeck.Count);
+        Assert.Equal(16, GameCards.Cards.Count);
+        Assert.Equal(7, GameCards.StarterDeck.Count);
     }
 
     [Theory]

@@ -17,6 +17,7 @@ public partial class PlayerCharacter : CharacterBody2D
 {
     public const float WalkSpeed = 80f;
     public const float SprintSpeed = 135f;
+    public const float CrawlSpeed = 22f;
     private const double SendInterval = 1.0 / 30.0;
     private const float SnapDistance = 96f;
     private const string SpriteFolder = "res://assets/sprites/delver";
@@ -29,6 +30,7 @@ public partial class PlayerCharacter : CharacterBody2D
     private Vector2 _dashVelocity;
     private double _dashTime;
     private double _hushTime;
+    private double _hurtTime;
     private AnimatedSprite2D? _sprite;
     private PlayerOverlay _overlay = null!;
 
@@ -40,6 +42,17 @@ public partial class PlayerCharacter : CharacterBody2D
 
     /// <summary>Moving at sprint speed right now (local: from input; remote: as reported by its owner).</summary>
     public bool IsSprinting { get; private set; }
+
+    /// <summary>Under Hush (enemies only notice them up close).</summary>
+    public bool IsHushed => _hushTime > 0;
+
+    /// <summary>At 0 hearts: crawling, can't act.</summary>
+    public bool IsDowned { get; private set; }
+
+    public bool IsDead { get; private set; }
+
+    /// <summary>Can be seen, hit and targeted.</summary>
+    public bool IsActive => !IsDowned && !IsDead;
 
     /// <summary>Best known true position: our own for local players, the last received one for remote players.</summary>
     public Vector2 AuthoritativePosition => IsLocal ? GlobalPosition : _remoteTarget;
@@ -111,8 +124,8 @@ public partial class PlayerCharacter : CharacterBody2D
         {
             var move = Device.ReadMove();
             if (move.LengthSquared() > 1f) move = move.Normalized();
-            bool sprintHeld = Device.ReadSprint();
-            Velocity = move * (sprintHeld ? SprintSpeed : WalkSpeed);
+            bool sprintHeld = Device.ReadSprint() && !IsDowned;
+            Velocity = move * (IsDowned ? CrawlSpeed : sprintHeld ? SprintSpeed : WalkSpeed);
             if (_dashTime > 0)
             {
                 _dashTime -= delta;
@@ -121,13 +134,13 @@ public partial class PlayerCharacter : CharacterBody2D
             MoveAndSlide();
             IsSprinting = sprintHeld && GetRealVelocity().Length() > WalkSpeed * 0.5f;
 
-            bool interacting = Device.ReadInteract();
+            bool interacting = Device.ReadInteract() && !IsDowned;
             if (interacting && !_wasInteracting) InteractPressed?.Invoke(this);
             _wasInteracting = interacting;
 
             for (int slot = 0; slot < _wasCard.Length; slot++)
             {
-                bool held = Device.ReadCard(slot);
+                bool held = Device.ReadCard(slot) && !IsDowned;
                 if (held && !_wasCard[slot]) CardPressed?.Invoke(this, slot);
                 _wasCard[slot] = held;
             }
@@ -146,11 +159,11 @@ public partial class PlayerCharacter : CharacterBody2D
                 : Position.Lerp(_remoteTarget, 1f - Mathf.Exp(-18f * (float)delta));
         }
 
-        if (_hushTime > 0)
-        {
-            _hushTime -= delta;
-            Modulate = new Color(1, 1, 1, _hushTime > 0 ? 0.55f : 1f);
-        }
+        if (_hushTime > 0) _hushTime -= delta;
+        if (_hurtTime > 0) _hurtTime -= delta;
+        // Hushed: faded. Hurt: blinking while invulnerable.
+        bool blink = _hurtTime > 0 && (int)(_hurtTime * 12) % 2 == 0;
+        Modulate = new Color(1, 1, 1, blink ? 0.25f : IsHushed ? 0.55f : 1f);
 
         Animate();
     }
@@ -176,6 +189,33 @@ public partial class PlayerCharacter : CharacterBody2D
         GlobalPosition = to;
     }
 
+    public void ShowHurt(double seconds) => _hurtTime = seconds;
+
+    private float _reviveProgress;
+
+    /// <summary>Progress ring over a downed player while someone revives them (0 hides it).</summary>
+    public void ShowReviveProgress(float progress)
+    {
+        _reviveProgress = progress;
+        QueueRedraw();
+    }
+
+    public void SetDowned(bool downed)
+    {
+        IsDowned = downed;
+        _dashTime = 0;
+    }
+
+    /// <summary>Gone: hidden, no collision, no input, no sync.</summary>
+    public void SetDead()
+    {
+        IsDead = true;
+        IsDowned = false;
+        Visible = false;
+        SetPhysicsProcess(false);
+        CollisionLayer = 0;
+    }
+
     /// <summary>Hush: shown as a faded character while silent (everyone sees it).</summary>
     public void ShowHushed(double seconds) => _hushTime = Math.Max(_hushTime, seconds);
 
@@ -197,6 +237,15 @@ public partial class PlayerCharacter : CharacterBody2D
         if (moving)
             _facing = Mathf.Abs(v.X) > Mathf.Abs(v.Y) ? (v.X < 0 ? "left" : "right") : (v.Y < 0 ? "up" : "down");
 
+        if (IsDowned)
+        {
+            // Lying on the floor (the death animation holds its last frame).
+            var down = CharacterSprites.Name("death", _facing);
+            if (_sprite.Animation != down) _sprite.Play(down);
+            _sprite.SpeedScale = 1f;
+            return;
+        }
+
         var animation = CharacterSprites.Name(!moving ? "idle" : IsSprinting ? "running" : "walking", _facing);
         if (_sprite.Animation != animation) _sprite.Play(animation);
         _sprite.SpeedScale = moving && IsSprinting ? 1.4f : 1f;
@@ -213,6 +262,9 @@ public partial class PlayerCharacter : CharacterBody2D
             DrawRect(body.Grow(-1), color);
             return;
         }
+
+        if (IsDowned && _reviveProgress > 0)
+            DrawArc(new Vector2(0, -6), 10f, -Mathf.Pi / 2, -Mathf.Pi / 2 + Mathf.Tau * _reviveProgress, 24, Palette.White, 1.5f);
 
         // Shadow + player-colored ring under the feet (drawn before children, so it sits under the sprite).
         DrawSetTransform(new Vector2(0, 1), 0, new Vector2(1f, 0.45f));

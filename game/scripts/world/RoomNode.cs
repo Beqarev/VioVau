@@ -273,4 +273,5 @@ public static class PhysicsLayers
 {
     public const uint Walls = 1 << 0;
     public const uint Players = 1 << 1;
+    public const uint Enemies = 1 << 2;
 }

@@ -29,6 +29,10 @@ public enum CardTarget
     NearbyPlayer,
     /// <summary>Any other player (the nearest one).</summary>
     OtherPlayer,
+    /// <summary>An enemy within arm's reach.</summary>
+    NearbyEnemy,
+    /// <summary>A downed ally in the same room.</summary>
+    DownedPlayer,
 }
 
 public enum EffectType
@@ -57,6 +61,14 @@ public enum EffectType
     GrantPoints,
     /// <summary>Multiplies the player's attributed noise by <c>Amount</c> (e.g. 0.5 halves it). Threat itself is unchanged.</summary>
     ScaleOwnNoise,
+    /// <summary>Stuns every enemy in the player's room for <c>Amount</c> seconds (performed by the AI).</summary>
+    StunEnemies,
+    /// <summary>Destroys the targeted enemy (not the Warden).</summary>
+    KillEnemy,
+    /// <summary>Drops a noisemaker where the player stands; enemies in the room go for it for <c>Amount</c> seconds.</summary>
+    Decoy,
+    /// <summary>Revives the targeted downed ally.</summary>
+    Revive,
 }
 
 public sealed record CardEffect
@@ -142,13 +154,17 @@ public sealed record CardsConfig
 
             foreach (var effect in card.Effects)
             {
-                bool needsTarget = effect.Type is EffectType.Unlock or EffectType.ShiftNoise or EffectType.Steal or EffectType.GrantPoints;
+                bool needsTarget = effect.Type is EffectType.Unlock or EffectType.ShiftNoise or EffectType.Steal or EffectType.GrantPoints or EffectType.KillEnemy or EffectType.Revive;
                 if (needsTarget && card.Target == CardTarget.None)
                     throw new InvalidDataException($"Card '{card.Id}': {effect.Type} needs a target.");
                 if (effect.Type == EffectType.Unlock && card.Target != CardTarget.LockedDoor)
                     throw new InvalidDataException($"Card '{card.Id}': Unlock needs target lockedDoor.");
                 if (effect.Type is EffectType.ShiftNoise or EffectType.Steal or EffectType.GrantPoints && card.Target is not (CardTarget.NearbyPlayer or CardTarget.OtherPlayer))
                     throw new InvalidDataException($"Card '{card.Id}': {effect.Type} needs a player target.");
+                if (effect.Type == EffectType.KillEnemy && card.Target != CardTarget.NearbyEnemy)
+                    throw new InvalidDataException($"Card '{card.Id}': KillEnemy needs target nearbyEnemy.");
+                if (effect.Type == EffectType.Revive && card.Target != CardTarget.DownedPlayer)
+                    throw new InvalidDataException($"Card '{card.Id}': Revive needs target downedPlayer.");
                 if (effect.Type == EffectType.RevealRooms && effect.Rooms.Count == 0)
                     throw new InvalidDataException($"Card '{card.Id}': RevealRooms needs rooms.");
                 if (effect.Amount < 0) throw new InvalidDataException($"Card '{card.Id}': amounts cannot be negative.");

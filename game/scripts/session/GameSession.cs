@@ -2,6 +2,7 @@ using Godot;
 using VioVau.Core;
 using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
+using VioVau.Core.Enemies;
 using VioVau.Game.Dev;
 using VioVau.Game.Entities;
 using VioVau.Game.Input;
@@ -16,7 +17,7 @@ namespace VioVau.Game.Session;
 /// and HUD, and — on the host — turns physical facts (crossing into a room, sprinting, standing next to a chest)
 /// into Core commands.
 /// </summary>
-public partial class GameSession : Node
+public partial class GameSession : Node, IEnemyWorld
 {
     private static readonly Vector2[] SpawnOffsets = [new(-24, 0), new(24, 0), new(0, -24), new(0, 24)];
 
@@ -27,12 +28,22 @@ public partial class GameSession : Node
     private const float RemoteTolerance = 12f;
 
     private const double SprintReportInterval = 0.25;
+    private const double EnemySyncInterval = 1.0 / 15.0;
+    private const float ReviveRange = 22f, NearbyEnemyRange = 30f;
+    private const double ReviveSeconds = 1.5;
 
     private readonly Dictionary<RoomId, RoomNode> _rooms = new();
     private readonly Dictionary<EntityId, LootNode> _loot = new();
     private readonly Dictionary<PlayerId, PlayerCharacter> _characters = new();
     private readonly Dictionary<PlayerId, RoomId> _rejectedMoves = new();
     private readonly Dictionary<PlayerId, double> _sprintSeconds = new();
+    private readonly Dictionary<EnemyId, EnemyNode> _enemies = new();
+    private Node2D _enemyLayer = null!;
+    private Node2D _lootLayer = null!;
+    private double _enemySyncTimer;
+
+    /// <summary>Host: revives in progress, by downed player → (reviver, seconds so far).</summary>
+    private readonly Dictionary<PlayerId, (PlayerId Reviver, double Time)> _revives = new();
     private double _sprintReportTimer;
 
     private NetSession _net = null!;
@@ -64,6 +75,8 @@ public partial class GameSession : Node
         _net.InteractRequested += OnInteractRequested;
         _net.PlayCardRequested += OnPlayCardRequested;
         _net.PlayerNotified += OnPlayerNotified;
+        _net.EnemyStatesReceived += OnEnemyStates;
+        _net.ReviveProgress += OnReviveProgress;
     }
 
     public override void _ExitTree()
@@ -75,6 +88,8 @@ public partial class GameSession : Node
         _net.InteractRequested -= OnInteractRequested;
         _net.PlayCardRequested -= OnPlayCardRequested;
         _net.PlayerNotified -= OnPlayerNotified;
+        _net.EnemyStatesReceived -= OnEnemyStates;
+        _net.ReviveProgress -= OnReviveProgress;
     }
 
     // ── Setup ───────────────────────────────────────────────────────────────
@@ -92,6 +107,7 @@ public partial class GameSession : Node
         }
 
         var loot = new Node2D { Name = "Loot" };
+        _lootLayer = loot;
         _world.AddChild(loot);
         foreach (var item in _view.Dungeon.Loot)
         {
@@ -100,6 +116,9 @@ public partial class GameSession : Node
             loot.AddChild(node);
             _loot[item.Id] = node;
         }
+
+        _enemyLayer = new Node2D { Name = "Enemies" };
+        _world.AddChild(_enemyLayer);
 
         var players = new Node2D { Name = "Players" };
         _world.AddChild(players);
@@ -112,8 +131,10 @@ public partial class GameSession : Node
             var device = entry is not null && entry.PeerId == _net.LocalPeerId ? LocalPlayers.Get(entry.LocalSlot) : null;
 
             PlayerCharacter character = null!;
-            if (DevOptions.Autopilot && device is not null && entry!.LocalSlot == 0)
-                device = new AutopilotDevice(_view, info.Id, () => character.GlobalPosition);
+            if (DevOptions.Autopilot && device is not null && (entry!.LocalSlot == 0 || DevOptions.AutopilotAll))
+                device = new AutopilotDevice(_view, info.Id, () => character.GlobalPosition,
+                    id => _characters.TryGetValue(id, out var c) && !c.IsDead ? c.GlobalPosition : null,
+                    at => _enemies.Values.Select(e => (Vector2?)e.GlobalPosition).OrderBy(p => p!.Value.DistanceTo(at)).FirstOrDefault());
 
             character = new PlayerCharacter().Init(info.Id, info.DisplayName, i, device, spawnCenter + SpawnOffsets[i % SpawnOffsets.Length]);
             character.InteractPressed += OnLocalInteractPressed;
@@ -121,6 +142,9 @@ public partial class GameSession : Node
             players.AddChild(character);
             _characters[info.Id] = character;
         }
+
+        // Enemies spawned at run start arrived before this scene existed; the view remembers them.
+        foreach (var spawned in _view.Enemies.Values) SpawnEnemy(spawned);
     }
 
     private void BuildUi()
@@ -153,11 +177,14 @@ public partial class GameSession : Node
 
         // One view per room containing a local player; with no local players (spectating), watch the Lobby.
         var rooms = _characters.Values
-            .Where(c => c.IsLocal)
+            .Where(c => c.IsLocal && !c.IsDead)
             .Select(c => WorldLayout.RoomAt(0, c.GlobalPosition))
             .Where(_view.Dungeon.Contains)
             .Distinct()
             .ToList();
+        // All local players dead (or none): spectate a teammate who's still in, else the Lobby.
+        if (rooms.Count == 0 && _characters.Values.FirstOrDefault(c => !c.IsDead) is { } survivor)
+            rooms.Add(WorldLayout.RoomAt(0, survivor.GlobalPosition));
         if (rooms.Count == 0) rooms.Add(_view.Dungeon.Entrance);
         _screens.ShowRooms(rooms);
 
@@ -166,7 +193,9 @@ public partial class GameSession : Node
         _elapsed += delta;
         if (_screenshotTimes.Count > 0 && _elapsed >= _screenshotTimes.Peek()) SaveScreenshot(_screenshotTimes.Dequeue());
 
-        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")} · seed {_view.Seed % 100000} · Esc";
+        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")} · seed {_view.Seed} · Esc to leave";
+        // Only at the start: afterwards it would cover whoever stands in the north doorway.
+        _info.Modulate = new Color(1, 1, 1, (float)Math.Clamp(6 - _elapsed, 0, 1));
     }
 
     /// <summary>Light up whatever each local player would interact with, and show their button above them.</summary>
@@ -175,14 +204,14 @@ public partial class GameSession : Node
         foreach (var loot in _loot.Values) loot.Highlighted = false;
         foreach (var room in _rooms.Values) room.HighlightedDoor = null;
 
-        foreach (var character in _characters.Values.Where(c => c.IsLocal))
+        foreach (var character in _characters.Values.Where(c => c.IsLocal && c.IsActive))
         {
-            var target = FindTarget(character.GlobalPosition, 0f);
+            var target = FindTarget(character.GlobalPosition, 0f, self: character.Id);
             character.Prompt = target is null ? null : character.Device!.InteractLabel;
 
             switch (target)
             {
-                case { Kind: InteractKind.Chest or InteractKind.Card } loot when _loot.TryGetValue(new EntityId(loot.Value), out var node):
+                case { Kind: InteractKind.Chest or InteractKind.Card or InteractKind.Bag } loot when _loot.TryGetValue(new EntityId(loot.Value), out var node):
                     node.Highlighted = true;
                     break;
                 case { Kind: InteractKind.Door } door when _rooms.TryGetValue(WorldLayout.RoomAt(0, character.GlobalPosition), out var room):
@@ -196,11 +225,21 @@ public partial class GameSession : Node
     {
         if (_view is null || !_net.IsHost || _net.State is null) return;
 
-        foreach (var character in _characters.Values)
+        foreach (var character in _characters.Values.Where(c => !c.IsDead))
         {
             DetectRoomChange(character);
-            PickUpTouchedKeys(character);
-            if (character.IsSprinting) _sprintSeconds[character.Id] = _sprintSeconds.GetValueOrDefault(character.Id) + delta;
+            if (character.IsActive) PickUpTouchedKeys(character);
+            if (character.IsSprinting && character.IsActive) _sprintSeconds[character.Id] = _sprintSeconds.GetValueOrDefault(character.Id) + delta;
+        }
+
+        TickRevives(delta);
+
+        _enemySyncTimer += delta;
+        if (_enemySyncTimer >= EnemySyncInterval && _enemies.Count > 0)
+        {
+            _enemySyncTimer = 0;
+            var list = _enemies.Values.ToList();
+            _net.SendEnemyStates(list.Select(e => e.Id.Value).ToArray(), list.Select(e => e.GlobalPosition).ToArray(), list.Select(e => e.PackedState).ToArray());
         }
 
         _sprintReportTimer += delta;
@@ -260,9 +299,17 @@ public partial class GameSession : Node
 
         // Re-check reach with the host's view of where that player is.
         float tolerance = character.IsLocal ? 0f : RemoteTolerance;
-        if (FindTarget(character.AuthoritativePosition, tolerance, target) is null)
+        if (FindTarget(character.AuthoritativePosition, tolerance, target, self: player) is null)
         {
             GD.Print($"[Game {_elapsed:0.0}s] Ignored {player} → {target}: out of reach or already used.");
+            return;
+        }
+
+        if (target.Kind == InteractKind.Revive)
+        {
+            // Reviving is a channel: stay beside them for a moment (see TickRevives). Pressing again doesn't restart it.
+            var downed = new PlayerId(target.Value);
+            if (!_revives.TryGetValue(downed, out var channel) || channel.Reviver != player) _revives[downed] = (player, 0);
             return;
         }
 
@@ -270,6 +317,7 @@ public partial class GameSession : Node
         {
             InteractKind.Chest => new OpenChest(player, new EntityId(target.Value)),
             InteractKind.Card => new TakeCard(player, new EntityId(target.Value)),
+            InteractKind.Bag => new ClaimBag(player, new EntityId(target.Value)),
             _ => new UnlockExit(player, (Direction)target.Value),
         };
         var result = _net.ApplyCommand(command);
@@ -290,6 +338,7 @@ public partial class GameSession : Node
         float tolerance = character.IsLocal ? 0f : RemoteTolerance;
         PlayerId? targetPlayer = null;
         Direction? door = null;
+        EnemyId? enemy = null;
 
         switch (card.Target)
         {
@@ -302,15 +351,31 @@ public partial class GameSession : Node
             case CardTarget.OtherPlayer:
                 targetPlayer = NearestOtherPlayer(character, float.MaxValue);
                 break;
+            case CardTarget.NearbyEnemy:
+                enemy = _enemies.Values
+                    .Where(e => e.GlobalPosition.DistanceTo(pos) <= NearbyEnemyRange + tolerance)
+                    .OrderBy(e => e.Kind == EnemyKind.Warden) // prefer something Shatter can actually break
+                    .ThenBy(e => e.GlobalPosition.DistanceTo(pos))
+                    .Select(e => (EnemyId?)e.Id)
+                    .FirstOrDefault();
+                break;
+            case CardTarget.DownedPlayer:
+                var room = WorldLayout.RoomAt(0, pos);
+                targetPlayer = _characters.Values
+                    .Where(c => c.IsDowned && WorldLayout.RoomAt(0, c.AuthoritativePosition) == room)
+                    .OrderBy(c => c.AuthoritativePosition.DistanceTo(pos))
+                    .Select(c => (PlayerId?)c.Id)
+                    .FirstOrDefault();
+                break;
         }
 
-        var result = _net.ApplyCommand(new PlayCard(player, slot, targetPlayer, door));
+        var result = _net.ApplyCommand(new PlayCard(player, slot, targetPlayer, door, enemy));
         if (!result.Accepted) _net.NotifyPlayer(player, result.RejectionReason ?? $"Can't play {card.Name}.");
     }
 
     private PlayerId? NearestOtherPlayer(PlayerCharacter from, float range) =>
         _characters.Values
-            .Where(c => c != from)
+            .Where(c => c != from && !c.IsDead)
             .Select(c => (c.Id, Distance: c.AuthoritativePosition.DistanceTo(from.AuthoritativePosition)))
             .Where(c => c.Distance <= range)
             .OrderBy(c => c.Distance)
@@ -321,7 +386,7 @@ public partial class GameSession : Node
 
     private void OnLocalInteractPressed(PlayerCharacter character)
     {
-        if (FindTarget(character.GlobalPosition, 0f) is { } target)
+        if (FindTarget(character.GlobalPosition, 0f, self: character.Id) is { } target)
             _net.RequestInteract(character.Id, target);
     }
 
@@ -329,7 +394,7 @@ public partial class GameSession : Node
     /// The nearest usable thing within reach of a position: an unopened chest, or a locked door of the room
     /// it's in. With <paramref name="only"/>, checks just that target.
     /// </summary>
-    private InteractTarget? FindTarget(Vector2 position, float tolerance, InteractTarget? only = null, bool doorsOnly = false)
+    private InteractTarget? FindTarget(Vector2 position, float tolerance, InteractTarget? only = null, bool doorsOnly = false, PlayerId? self = null)
     {
         var room = WorldLayout.RoomAt(0, position);
         if (!_view.Dungeon.Contains(room)) return null;
@@ -348,15 +413,21 @@ public partial class GameSession : Node
             }
         }
 
-        foreach (var loot in _view.Dungeon.LootIn(room).Where(l => !doorsOnly && !l.Claimed && l.Kind is LootKind.Chest or LootKind.Card))
+        foreach (var loot in _view.Dungeon.LootIn(room).Where(l => !doorsOnly && !l.Claimed && l.Kind is LootKind.Chest or LootKind.Card or LootKind.Bag))
         {
-            var kind = loot.Kind == LootKind.Chest ? InteractKind.Chest : InteractKind.Card;
+            var kind = loot.Kind switch { LootKind.Chest => InteractKind.Chest, LootKind.Bag => InteractKind.Bag, _ => InteractKind.Card };
             Consider(new InteractTarget(kind, loot.Id.Value), WorldLayout.LootPosition(room, loot.Position), ChestRange);
         }
 
         var roomData = _view.Dungeon.GetRoom(room);
         foreach (var side in DirectionExtensions.All.Where(d => roomData.GetExit(d) == ExitState.Locked))
             Consider(new InteractTarget(InteractKind.Door, (int)side), WorldLayout.DoorCenter(room, side), DoorRange);
+
+        if (!doorsOnly)
+        {
+            foreach (var downed in _characters.Values.Where(c => c.IsDowned && c.Id != self && WorldLayout.RoomAt(0, c.AuthoritativePosition) == room))
+                Consider(new InteractTarget(InteractKind.Revive, downed.Id.Value), downed.AuthoritativePosition, ReviveRange);
+        }
 
         return best;
     }
@@ -412,6 +483,66 @@ public partial class GameSession : Node
                 quiet.ShowHushed(silenced.Seconds);
                 break;
 
+            case EnemySpawned spawned:
+                SpawnEnemy(spawned);
+                break;
+
+            case EnemyKilled killed when _enemies.Remove(killed.Enemy, out var corpse):
+                GD.Print($"[Game {_elapsed:0.0}s] {killed.By} destroyed {killed.Enemy}");
+                corpse.Die();
+                break;
+
+            case EnemiesStunned stunned:
+                foreach (var e2 in _enemies.Values.Where(n => WorldLayout.RoomAt(0, n.GlobalPosition) == stunned.Room)) e2.Stun(stunned.Seconds);
+                if (_characters.TryGetValue(stunned.By, out var flasher))
+                    _world.AddChild(new NoiseRing().Init(flasher.GlobalPosition, 12));
+                break;
+
+            case DecoyPlaced decoy when _characters.TryGetValue(decoy.By, out var thrower):
+                var spot = thrower.AuthoritativePosition;
+                _world.AddChild(new DecoyNode().Init(spot, decoy.Seconds));
+                foreach (var e3 in _enemies.Values.Where(n => WorldLayout.RoomAt(0, n.GlobalPosition) == decoy.Room)) e3.Distract(spot, decoy.Seconds);
+                break;
+
+            case PlayerHit hit when _characters.TryGetValue(hit.Player, out var hurt):
+                GD.Print($"[Game {_elapsed:0.0}s] {hit.Player} hit by {hit.Enemy} → {hit.Hearts} hearts");
+                hurt.ShowHurt(_view.Config.EnemySet.Health.InvulnerableSeconds);
+                break;
+
+            case PlayerDowned downed when _characters.TryGetValue(downed.Player, out var fallen):
+                GD.Print($"[Game {_elapsed:0.0}s] {downed.Player} is DOWN");
+                fallen.SetDowned(true);
+                _world.AddChild(new FloatingText().Init(fallen.GlobalPosition + new Vector2(0, -22), "DOWN!", Palette.White));
+                break;
+
+            case PlayerRevived revived when _characters.TryGetValue(revived.Player, out var risen):
+                GD.Print($"[Game {_elapsed:0.0}s] {revived.By} revived {revived.Player}");
+                risen.SetDowned(false);
+                _world.AddChild(new FloatingText().Init(risen.GlobalPosition + new Vector2(0, -22), "BACK UP", Palette.Accent));
+                break;
+
+            case PlayerDied died when _characters.TryGetValue(died.Player, out var gone):
+                GD.Print($"[Game {_elapsed:0.0}s] {died.Player} DIED");
+                _world.AddChild(new FloatingText().Init(gone.GlobalPosition + new Vector2(0, -22), $"{gone.DisplayName.ToUpperInvariant()} FELL", Palette.White));
+                gone.SetDead();
+                break;
+
+            case LootDropped dropped when _view.Dungeon.GetLoot(dropped.Bag) is { } bagItem:
+                var bagNode = new LootNode().Init(bagItem, fancy: false);
+                _lootLayer.AddChild(bagNode);
+                _loot[bagItem.Id] = bagNode;
+                break;
+
+            case BagClaimed claimed:
+                GD.Print($"[Game {_elapsed:0.0}s] {claimed.Player} claimed a bag: {claimed.Points}p {claimed.Keys}K");
+                if (_loot.TryGetValue(claimed.Bag, out var claimedBag)) claimedBag.Refresh();
+                break;
+
+            case RunEnded ended:
+                GD.Print($"[Game {_elapsed:0.0}s] Run ended: {ended.Reason}");
+                _banner.Show($"{ended.Reason.ToUpperInvariant()}   ·   Esc to leave", Palette.White, double.PositiveInfinity);
+                break;
+
             case CardTaken taken:
                 GD.Print($"[Game {_elapsed:0.0}s] {taken.Player} took card {taken.Card} for {taken.Price}p");
                 if (_loot.TryGetValue(taken.Offer, out var offer)) offer.Refresh();
@@ -430,7 +561,7 @@ public partial class GameSession : Node
 
     private IReadOnlyList<HandHud.LocalHand> LocalHands() =>
         _characters.Values
-            .Where(c => c.IsLocal)
+            .Where(c => c.IsLocal && !c.IsDead)
             .OrderBy(c => c.ColorIndex)
             .Select(c => new HandHud.LocalHand(c.Id, c.ColorIndex, c.Device!))
             .ToList();
@@ -472,8 +603,82 @@ public partial class GameSession : Node
         GD.Print($"[Dev] Screenshot {path}: {error}");
     }
 
+    // ── Reviving (host) ─────────────────────────────────────────────────────
+
+    /// <summary>A revive completes after <see cref="ReviveSeconds"/> beside the downed player; moving away or getting downed cancels it.</summary>
+    private void TickRevives(double delta)
+    {
+        foreach (var (targetId, (reviverId, time)) in _revives.ToList())
+        {
+            bool valid = _characters.TryGetValue(targetId, out var target) && target.IsDowned &&
+                         _characters.TryGetValue(reviverId, out var reviver) && reviver.IsActive &&
+                         reviver.AuthoritativePosition.DistanceTo(target.AuthoritativePosition) <= ReviveRange + RemoteTolerance;
+            if (!valid)
+            {
+                _revives.Remove(targetId);
+                _net.SendReviveProgress(targetId, 0);
+                continue;
+            }
+
+            double now = time + delta;
+            if (now >= ReviveSeconds)
+            {
+                _revives.Remove(targetId);
+                _net.SendReviveProgress(targetId, 0);
+                var result = _net.ApplyCommand(new RevivePlayer(reviverId, targetId));
+                if (!result.Accepted) _net.NotifyPlayer(reviverId, result.RejectionReason ?? "Can't revive.");
+                continue;
+            }
+            _revives[targetId] = (reviverId, now);
+            _net.SendReviveProgress(targetId, (float)(now / ReviveSeconds));
+        }
+    }
+
+    private void OnReviveProgress(PlayerId target, float progress)
+    {
+        if (_characters.TryGetValue(target, out var character)) character.ShowReviveProgress(progress);
+    }
+
+    // ── Enemies ─────────────────────────────────────────────────────────────
+
+    private void SpawnEnemy(EnemySpawned spawned)
+    {
+        if (_enemies.ContainsKey(spawned.Enemy)) return;
+        var position = WorldLayout.LootPosition(spawned.Room, spawned.At);
+        var target = spawned.Target is { } t ? _characters.GetValueOrDefault(t) : null;
+        var node = new EnemyNode().Init(spawned.Enemy, spawned.Kind, position, _view.Config.EnemySet.Ai(spawned.Kind),
+            _net.IsHost ? this : null, target);
+        _enemyLayer.AddChild(node);
+        _enemies[spawned.Enemy] = node;
+
+        if (spawned.Target is { } strikeTarget)
+        {
+            GD.Print($"[Game {_elapsed:0.0}s] {spawned.Kind} {spawned.Enemy} sent after {strikeTarget} in {spawned.Room}");
+            if (spawned.Kind == EnemyKind.Warden)
+                _banner.Show("THE WARDEN AWAKENS", Palette.White, 3.5);
+        }
+    }
+
+    private void OnEnemyStates(int[] ids, Vector2[] positions, int[] states)
+    {
+        for (int i = 0; i < ids.Length && i < positions.Length && i < states.Length; i++)
+            if (_enemies.TryGetValue(new EnemyId(ids[i]), out var enemy)) enemy.ApplyRemoteState(positions[i], states[i]);
+    }
+
+    // IEnemyWorld (host only)
+    public DungeonMap Map => _view.Dungeon;
+    public IEnumerable<PlayerCharacter> ActivePlayers => _characters.Values.Where(c => c.IsActive);
+    public PlayerCharacter? WardenPrey => _net.State?.Loudest() is { } prey ? _characters.GetValueOrDefault(prey.Id) : null;
+
+    public void ReportHit(EnemyNode enemy, PlayerCharacter target)
+    {
+        var at = target.AuthoritativePosition;
+        _net.ApplyCommand(new HitPlayer(target.Id, enemy.Id, WorldLayout.ToRoomPoint(WorldLayout.RoomAt(0, at), at)));
+    }
+
     private IEnumerable<Minimap.Marker> MinimapMarkers() =>
         _characters.Values
+            .Where(c => !c.IsDead)
             .Select(c => new Minimap.Marker(WorldLayout.RoomAt(0, c.GlobalPosition), c.ColorIndex))
             .Where(m => _view.Dungeon.Contains(m.Room));
 }

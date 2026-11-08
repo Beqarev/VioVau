@@ -11,7 +11,13 @@ public static class DevOptions
 {
     private static readonly string[] Args = OS.GetCmdlineUserArgs();
 
-    public static bool Autopilot => Args.Contains("--autopilot");
+    public static bool Autopilot => Args.Contains("--autopilot") || AutopilotAll;
+
+    /// <summary><c>--autopilot=all</c>: every local player on this machine is an autopilot (couch tests).</summary>
+    public static bool AutopilotAll => Value("autopilot") == "all";
+
+    /// <summary><c>--brutal</c>: 1 heart and fast, sharp-eyed Sentries — for testing downed / death / bags quickly.</summary>
+    public static bool Brutal => Args.Contains("--brutal");
 
     /// <summary><c>--seed=N</c>: the host uses this run seed (reproducible dungeons for testing).</summary>
     public static ulong? Seed => ulong.TryParse(Value("seed"), out var seed) ? seed : null;

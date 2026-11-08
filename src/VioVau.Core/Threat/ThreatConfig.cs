@@ -18,6 +18,7 @@ public sealed record ThreatConfig
     public double OpenChest { get; init; } = 3;
     public double PickUpKey { get; init; } = 0;
     public double UnlockExit { get; init; } = 4;
+    public double Revive { get; init; } = 2;
 
     /// <summary>How fast old noise stops counting toward a player's share.</summary>
     public double AttributionHalfLifeSeconds { get; init; } = 45;
@@ -63,7 +64,7 @@ public sealed record ThreatConfig
                 throw new InvalidDataException("tierThresholds must be strictly ascending.");
         if (TierThresholds[^1] > Max) throw new InvalidDataException("The last tier threshold cannot exceed max.");
         if (TierNames.Count != TierThresholds.Count) throw new InvalidDataException("tierNames must match tierThresholds.");
-        if (new[] { PassivePerSecond, SprintPerSecond, OpenChest, PickUpKey, UnlockExit }.Any(v => v < 0))
+        if (new[] { PassivePerSecond, SprintPerSecond, OpenChest, PickUpKey, UnlockExit, Revive }.Any(v => v < 0))
             throw new InvalidDataException("Threat amounts cannot be negative.");
         if (AttributionHalfLifeSeconds <= 0 || BroadcastIntervalSeconds <= 0)
             throw new InvalidDataException("attributionHalfLifeSeconds and broadcastIntervalSeconds must be positive.");

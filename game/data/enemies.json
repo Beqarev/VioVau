@@ -1,0 +1,42 @@
+{
+  // Enemies and player health. All numbers are first guesses — tune in playtests.
+  "maxEnemies": 16,
+
+  // Strikes: every N seconds the dungeon sends a Sentry through a doorway of one player's room,
+  // chosen at random weighted by recent noise. One entry per Threat tier (0 = none at that tier).
+  //                   Calm Stirring Restless Hunting Furious Collapse
+  "strikeIntervals": [ 0,   40,      28,      20,     15,     12 ],
+
+  // The Warden (unkillable, hunts the loudest player) awakens at this Threat tier. -1 = never.
+  "wardenTier": 4,
+
+  // Hollow Sentries guarding rooms at the start (inclusive ranges). Never the Lobby.
+  "spawns": {
+    "GuardPost": { "min": 1, "max": 2 },
+    "Vault":     { "min": 0, "max": 1 },
+    "RelicChamber": { "min": 1, "max": 1 }
+  },
+
+  "health": {
+    "hearts": 3,
+    "invulnerableSeconds": 1.2,
+    "dashInvulnerableSeconds": 0.35,
+    // Downed players crawl; a teammate (Interact, or the Rally card) can revive them before this runs out.
+    "bleedOutSeconds": 20,
+    "reviveHearts": 1
+  },
+
+  // AI tuning (px and seconds). Player walk = 80 px/s, sprint = 135.
+  "sentry": {
+    "patrolSpeed": 35, "chaseSpeed": 72,
+    "sightRadius": 85, "hearingRadius": 140, "hushedRadius": 30,
+    "attackRange": 14, "hitRange": 20, "windupSeconds": 0.45, "cooldownSeconds": 1.1,
+    "loseAfterSeconds": 3
+  },
+  "warden": {
+    "patrolSpeed": 58, "chaseSpeed": 58,
+    "sightRadius": 85, "hearingRadius": 140, "hushedRadius": 30,
+    "attackRange": 16, "hitRange": 22, "windupSeconds": 0.6, "cooldownSeconds": 1.6,
+    "loseAfterSeconds": 3
+  }
+}

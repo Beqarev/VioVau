@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using VioVau.Core.Cards;
 using VioVau.Core.Dungeon;
+using VioVau.Core.Enemies;
 
 namespace VioVau.Core;
 
@@ -33,6 +34,17 @@ public interface ICommand;
 [JsonDerivedType(typeof(PlayerSilenced), "playerSilenced")]
 [JsonDerivedType(typeof(PlayerResourcesChanged), "playerResourcesChanged")]
 [JsonDerivedType(typeof(CardTaken), "cardTaken")]
+[JsonDerivedType(typeof(EnemySpawned), "enemySpawned")]
+[JsonDerivedType(typeof(EnemyKilled), "enemyKilled")]
+[JsonDerivedType(typeof(EnemiesStunned), "enemiesStunned")]
+[JsonDerivedType(typeof(DecoyPlaced), "decoyPlaced")]
+[JsonDerivedType(typeof(PlayerHit), "playerHit")]
+[JsonDerivedType(typeof(PlayerDowned), "playerDowned")]
+[JsonDerivedType(typeof(PlayerRevived), "playerRevived")]
+[JsonDerivedType(typeof(PlayerDied), "playerDied")]
+[JsonDerivedType(typeof(LootDropped), "lootDropped")]
+[JsonDerivedType(typeof(BagClaimed), "bagClaimed")]
+[JsonDerivedType(typeof(RunEnded), "runEnded")]
 public interface IGameEvent;
 
 /// <summary>An event only its owner may see (e.g. which card they drew). The host sends it to that player's machine only.</summary>
@@ -73,10 +85,19 @@ public sealed record PickUpKey(PlayerId Player, EntityId Key) : ICommand;
 public sealed record UnlockExit(PlayerId Player, Direction Side) : ICommand;
 
 /// <summary>Play the card in a hand slot. Targets are found by the physics layer (who's nearby, which door).</summary>
-public sealed record PlayCard(PlayerId Player, int Slot, PlayerId? TargetPlayer = null, Direction? TargetDoor = null) : ICommand;
+public sealed record PlayCard(PlayerId Player, int Slot, PlayerId? TargetPlayer = null, Direction? TargetDoor = null, EnemyId? TargetEnemy = null) : ICommand;
 
 /// <summary>Take a card offered in the player's room (free at a Library, bought at a Merchant).</summary>
 public sealed record TakeCard(PlayerId Player, EntityId Offer) : ICommand;
+
+/// <summary>An enemy's attack connected (detected by the AI). <paramref name="At"/> is where the player stood.</summary>
+public sealed record HitPlayer(PlayerId Player, EnemyId Enemy, RoomPoint At) : ICommand;
+
+/// <summary>Help a downed ally up (the physics layer checked they're within reach).</summary>
+public sealed record RevivePlayer(PlayerId Reviver, PlayerId Target) : ICommand;
+
+/// <summary>Pick up a dead player's loot bag.</summary>
+public sealed record ClaimBag(PlayerId Player, EntityId Bag) : ICommand;
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
@@ -141,3 +162,31 @@ public sealed record PlayerSilenced(PlayerId Player, double Seconds) : IGameEven
 public sealed record PlayerResourcesChanged(PlayerId Player, int CarriedPoints, int Keys) : IGameEvent;
 
 public sealed record CardTaken(PlayerId Player, EntityId Offer, CardId Card, int Price) : IGameEvent;
+
+// Danger
+
+/// <param name="Target">For Strikes: the player the dungeon sent it after (null for initial guards).</param>
+public sealed record EnemySpawned(EnemyId Enemy, EnemyKind Kind, RoomId Room, RoomPoint At, PlayerId? Target) : IGameEvent;
+
+public sealed record EnemyKilled(EnemyId Enemy, PlayerId By) : IGameEvent;
+
+/// <summary>Every enemy in the room is stunned (the AI applies it).</summary>
+public sealed record EnemiesStunned(PlayerId By, RoomId Room, double Seconds) : IGameEvent;
+
+/// <summary>A noisemaker at the player's feet; enemies in the room chase it instead (the AI applies it).</summary>
+public sealed record DecoyPlaced(PlayerId By, RoomId Room, double Seconds) : IGameEvent;
+
+public sealed record PlayerHit(PlayerId Player, EnemyId Enemy, int Hearts) : IGameEvent;
+
+public sealed record PlayerDowned(PlayerId Player, double BleedOutSeconds) : IGameEvent;
+
+public sealed record PlayerRevived(PlayerId Player, PlayerId By, int Hearts) : IGameEvent;
+
+public sealed record PlayerDied(PlayerId Player) : IGameEvent;
+
+/// <summary>A dead player's loot bag appeared (new loot not known from generation).</summary>
+public sealed record LootDropped(EntityId Bag, RoomId Room, RoomPoint At, int Points, int Keys, PlayerId From) : IGameEvent;
+
+public sealed record BagClaimed(PlayerId Player, EntityId Bag, int Points, int Keys) : IGameEvent;
+
+public sealed record RunEnded(string Reason) : IGameEvent;

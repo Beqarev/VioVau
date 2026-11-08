@@ -80,6 +80,11 @@ public sealed class DungeonMap
 
     public IEnumerable<LootItem> LootIn(RoomId room) => _loot.Values.Where(l => l.Room == room);
 
+    /// <summary>The next unused entity id (for loot that appears during the run).</summary>
+    internal EntityId NextEntityId() => new(_loot.Count == 0 ? 1 : _loot.Keys.Max(k => k.Value) + 1);
+
+    internal void AddLoot(LootItem item) => _loot.Add(item.Id, item);
+
     /// <summary>Sets an exit on both sides of a doorway, keeping the map symmetric.</summary>
     internal void SetDoorway(RoomId room, Direction side, ExitState state)
     {

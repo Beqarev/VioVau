@@ -32,7 +32,7 @@ Open `game/project.godot` in Godot and press F5 to run.
 ## Playing / testing multiplayer
 
 - **Couch:** in the menu, each person presses their join button: `Space` (WASD, Shift sprints), `Enter` (arrows, `.` sprints), or `A` on a gamepad (`B` to leave). Then **Host** → **Start run**.
-- **In a run:** sprinting, opening chests and unlocking doors make noise and raise the shared Threat. Keys are picked up by walking over them; Vault doors need one (or a Lockpick).
+- **In a run:** sprinting, opening chests and unlocking doors make noise and raise the shared Threat. Keys are picked up by walking over them; Vault doors need one (or a Lockpick). Hollow Sentries hunt what they see and hear; the louder you are, the more the dungeon sends after you. At 0 hearts you're downed: a teammate stands beside you and holds Interact (1.5s), or plays Rally.
 
 | | Move | Sprint | Interact | Cards (slots 1–3) |
 |---|---|---|---|---|
@@ -55,6 +55,8 @@ Open `game/project.godot` in Godot and press F5 to run.
 | `--wasd` / `--arrows` | Add a local keyboard player |
 | `--host` / `--join=IP` | Host or join immediately |
 | `--start-at=N` | Host starts the run once N players are in |
+| `--autopilot=all` | Every local player on this machine is an autopilot (couch tests) |
+| `--brutal` | 1 heart, fast sharp-eyed Sentries, strikes every 8s — to test downed / death / bags quickly |
 | `--seed=N` | Host uses this dungeon seed (reproducible runs) |
 | `--autopilot` | This machine's first player plays by itself: loots chests, grabs keys, unlocks Vaults (key or Lockpick), takes Library/Merchant cards, plays a card every few seconds, sprints everywhere |
 | `--screenshot-at=2,8 --screenshot-dir=PATH` | Save screenshots at those seconds into the run |
