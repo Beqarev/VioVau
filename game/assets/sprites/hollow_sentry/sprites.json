@@ -1,0 +1,60 @@
+{
+  "frame": 32,
+  "directions": [
+    "down",
+    "left",
+    "right",
+    "up"
+  ],
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "frames": 4,
+      "fps": 8,
+      "loop": true,
+      "source": "Idle"
+    },
+    "walking": {
+      "file": "walking.png",
+      "frames": 6,
+      "fps": 8,
+      "loop": true,
+      "source": "Walking_A"
+    },
+    "running": {
+      "file": "running.png",
+      "frames": 6,
+      "fps": 8,
+      "loop": true,
+      "source": "Running_A"
+    },
+    "1h-melee-attack-chop": {
+      "file": "1h-melee-attack-chop.png",
+      "frames": 5,
+      "fps": 10,
+      "loop": false,
+      "source": "1H_Melee_Attack_Chop"
+    },
+    "hit": {
+      "file": "hit.png",
+      "frames": 3,
+      "fps": 10,
+      "loop": false,
+      "source": "Hit_A"
+    },
+    "death": {
+      "file": "death.png",
+      "frames": 6,
+      "fps": 10,
+      "loop": false,
+      "source": "Death_A"
+    },
+    "block": {
+      "file": "block.png",
+      "frames": 4,
+      "fps": 10,
+      "loop": false,
+      "source": "Block"
+    }
+  }
+}

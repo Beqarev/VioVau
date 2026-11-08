@@ -89,7 +89,7 @@ public partial class GameSession : Node
         _world.AddChild(loot);
         foreach (var item in _view.Dungeon.Loot)
         {
-            var node = new LootNode().Init(item);
+            var node = new LootNode().Init(item, fancy: _view.Dungeon.GetRoom(item.Room).Type == RoomType.Vault);
             loot.AddChild(node);
             _loot[item.Id] = node;
         }

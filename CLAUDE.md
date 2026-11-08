@@ -16,4 +16,5 @@ Read `docs/design.md` (rules) and `docs/architecture.md` (code structure) before
 - Build: `dotnet build VioVau.sln`
 - Test: `dotnet test VioVau.sln`
 - The Godot project is `game/` (Godot 4.7 .NET, `Godot.NET.Sdk/4.7.2`). Godot binary: `/Applications/Godot_mono.app/Contents/MacOS/Godot` (also `godot-mono` on PATH).
+- Art pipeline: see `docs/art-bible.md`. Characters = `.glb` from Sprixen Character Studio → `res://tools/SpriteBaker.tscn` (needs a window). 2D items → `res://tools/ItemImporter.tscn` (headless OK). Then `--headless --import`. Raw sources live in `game/assets/raw/` (has `.gdignore`).
 - Automated play-test (run `dotnet build` first): host `--path game -- --host --start-at=2 --autopilot --screenshot-at=2,8 --screenshot-dir=<dir>`, client `--path game -- --join=127.0.0.1 --autopilot`. Add `--headless` for log-only runs. Logs print `[Net]`, `[Game]`, `[Dev]` lines.

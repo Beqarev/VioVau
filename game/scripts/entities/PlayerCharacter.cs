@@ -10,6 +10,8 @@ namespace VioVau.Game.Entities;
 /// <summary>
 /// A player's body. Local players move with physics and stream their position to everyone;
 /// remote players are smoothly interpolated toward the latest position received.
+/// Drawn with the baked Delver sprites (idle / walking / running × 4 directions), a colored ring
+/// under the feet marks which player it is.
 /// </summary>
 public partial class PlayerCharacter : CharacterBody2D
 {
@@ -17,11 +19,14 @@ public partial class PlayerCharacter : CharacterBody2D
     public const float SprintSpeed = 135f;
     private const double SendInterval = 1.0 / 30.0;
     private const float SnapDistance = 96f;
+    private const string SpriteFolder = "res://assets/sprites/delver";
 
     private Vector2 _remoteTarget;
     private double _sendTimer;
     private bool _wasInteracting;
-    private string? _prompt;
+    private string _facing = "down";
+    private AnimatedSprite2D? _sprite;
+    private PlayerOverlay _overlay = null!;
 
     public PlayerId Id { get; private set; }
     public string DisplayName { get; private set; } = "";
@@ -41,13 +46,8 @@ public partial class PlayerCharacter : CharacterBody2D
     /// <summary>Button hint drawn above the player (e.g. "E"), or null.</summary>
     public string? Prompt
     {
-        get => _prompt;
-        set
-        {
-            if (_prompt == value) return;
-            _prompt = value;
-            QueueRedraw();
-        }
+        get => _overlay.Prompt;
+        set => _overlay.Prompt = value;
     }
 
     public PlayerCharacter Init(PlayerId id, string displayName, int colorIndex, InputDevice? device, Vector2 spawn)
@@ -69,6 +69,24 @@ public partial class PlayerCharacter : CharacterBody2D
         CollisionMask = PhysicsLayers.Walls; // players pass through each other
         ZIndex = 10;
         AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 5f } });
+
+        float headY = -14f;
+        if (CharacterSprites.Load(SpriteFolder) is { } art)
+        {
+            // Stand the sprite's feet on this node's position (+2px so the collision circle sits at the ankles).
+            _sprite = new AnimatedSprite2D
+            {
+                SpriteFrames = art.Frames,
+                Centered = false,
+                Position = new Vector2(-art.FrameSize / 2f, -art.FeetY + 2),
+            };
+            AddChild(_sprite);
+            _sprite.Play(CharacterSprites.Name("idle", _facing));
+            headY = -art.FeetY + 2 + 3; // just above the hood
+        }
+
+        _overlay = new PlayerOverlay().Init(ColorIndex, headY);
+        AddChild(_overlay);
     }
 
     public override void _PhysicsProcess(double delta)
@@ -99,6 +117,8 @@ public partial class PlayerCharacter : CharacterBody2D
                 ? _remoteTarget
                 : Position.Lerp(_remoteTarget, 1f - Mathf.Exp(-18f * (float)delta));
         }
+
+        Animate();
     }
 
     public void ApplyRemoteState(Vector2 position, Vector2 velocity, bool sprinting)
@@ -109,21 +129,37 @@ public partial class PlayerCharacter : CharacterBody2D
         IsSprinting = sprinting;
     }
 
+    /// <summary>Pick idle / walking / running and the facing direction from the current velocity.</summary>
+    private void Animate()
+    {
+        if (_sprite is null) return;
+
+        var v = IsLocal ? GetRealVelocity() : Velocity;
+        bool moving = v.Length() > 5f;
+        if (moving)
+            _facing = Mathf.Abs(v.X) > Mathf.Abs(v.Y) ? (v.X < 0 ? "left" : "right") : (v.Y < 0 ? "up" : "down");
+
+        var animation = CharacterSprites.Name(!moving ? "idle" : IsSprinting ? "running" : "walking", _facing);
+        if (_sprite.Animation != animation) _sprite.Play(animation);
+        _sprite.SpeedScale = moving && IsSprinting ? 1.4f : 1f;
+    }
+
     public override void _Draw()
     {
         var color = Palette.PlayerColor(ColorIndex);
-        var body = new Rect2(-5, -6, 10, 12);
-        DrawRect(body, Palette.Void);
-        DrawRect(body.Grow(-1), color);
-        DrawString(ThemeDB.FallbackFont, new Vector2(-3, -9), (ColorIndex + 1).ToString(),
-            HorizontalAlignment.Left, -1, 8, color);
-
-        if (_prompt is not null)
+        if (_sprite is null)
         {
-            var box = new Rect2(6, -18, 9, 9);
-            DrawRect(box, Palette.White);
-            DrawString(ThemeDB.FallbackFont, new Vector2(box.Position.X, box.End.Y - 2), _prompt,
-                HorizontalAlignment.Center, box.Size.X, 8, Palette.Void);
+            // Placeholder when the art is missing.
+            var body = new Rect2(-5, -6, 10, 12);
+            DrawRect(body, Palette.Void);
+            DrawRect(body.Grow(-1), color);
+            return;
         }
+
+        // Shadow + player-colored ring under the feet (drawn before children, so it sits under the sprite).
+        DrawSetTransform(new Vector2(0, 1), 0, new Vector2(1f, 0.45f));
+        DrawCircle(Vector2.Zero, 7f, new Color(Palette.Void, 0.6f));
+        DrawArc(Vector2.Zero, 7f, 0, Mathf.Tau, 20, color, 1.2f);
+        DrawSetTransform(Vector2.Zero, 0, Vector2.One);
     }
 }

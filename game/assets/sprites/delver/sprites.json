@@ -1,0 +1,81 @@
+{
+  "frame": 32,
+  "directions": [
+    "down",
+    "left",
+    "right",
+    "up"
+  ],
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "frames": 4,
+      "fps": 8,
+      "loop": true,
+      "source": "Idle"
+    },
+    "walking": {
+      "file": "walking.png",
+      "frames": 6,
+      "fps": 8,
+      "loop": true,
+      "source": "Walking_A"
+    },
+    "running": {
+      "file": "running.png",
+      "frames": 6,
+      "fps": 8,
+      "loop": true,
+      "source": "Running_A"
+    },
+    "interact": {
+      "file": "interact.png",
+      "frames": 4,
+      "fps": 10,
+      "loop": false,
+      "source": "Interact"
+    },
+    "pickup": {
+      "file": "pickup.png",
+      "frames": 4,
+      "fps": 10,
+      "loop": false,
+      "source": "PickUp"
+    },
+    "use-item": {
+      "file": "use-item.png",
+      "frames": 4,
+      "fps": 10,
+      "loop": false,
+      "source": "Use_Item"
+    },
+    "hit": {
+      "file": "hit.png",
+      "frames": 3,
+      "fps": 10,
+      "loop": false,
+      "source": "Hit_A"
+    },
+    "death": {
+      "file": "death.png",
+      "frames": 6,
+      "fps": 10,
+      "loop": false,
+      "source": "Death_A"
+    },
+    "dodge-forward": {
+      "file": "dodge-forward.png",
+      "frames": 5,
+      "fps": 10,
+      "loop": false,
+      "source": "Dodge_Forward"
+    },
+    "cheer": {
+      "file": "cheer.png",
+      "frames": 6,
+      "fps": 10,
+      "loop": false,
+      "source": "Cheer"
+    }
+  }
+}
