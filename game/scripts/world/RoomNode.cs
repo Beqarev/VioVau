@@ -4,10 +4,19 @@ using VioVau.Game.UI;
 
 namespace VioVau.Game.World;
 
-/// <summary>Graybox room: floor, walls with doorways, locked doors, and their collision. Unrevealed rooms draw as void.</summary>
+/// <summary>
+/// Room visuals: tiled floor with AO, 3/4 wall faces (north walls feel tall), decorative props by room type,
+/// crystals, locked doors. Collision stays thin — props are mostly cosmetic.
+/// </summary>
 public partial class RoomNode : Node2D
 {
     private const float TileSize = 16f;
+
+    /// <summary>Visible front face hanging down from the north wall top (3/4 view).</summary>
+    private const float WallFaceHeight = 16f;
+
+    /// <summary>How far a character's sprite may overlap the bottom of the north face (feels like standing in front of it).</summary>
+    private const float FaceOverlap = 4f;
 
     private bool _revealed;
     private Direction? _highlightedDoor;
@@ -132,6 +141,11 @@ public partial class RoomNode : Node2D
         {
             var exit = Room.GetExit(side);
             var rects = WorldLayout.WallRects(side, exit != ExitState.None).ToList();
+            if (side == Direction.North)
+            {
+                // The 3/4 front face is part of the wall: you stop at its foot (a few px of overlap reads as depth).
+                rects = rects.Select(r => new Rect2(r.Position, new Vector2(r.Size.X, r.Size.Y + WallFaceHeight - FaceOverlap))).ToList();
+            }
             if (!Room.IsPassable(side) && exit != ExitState.None) rects.Add(WorldLayout.DoorRect(side));
 
             foreach (var rect in rects)
@@ -164,6 +178,7 @@ public partial class RoomNode : Node2D
         }
 
         DrawFloor(bounds);
+        DrawFloorAo(bounds);
         if (Room.Type == RoomType.Lobby) DrawExtractionCircle(bounds.GetCenter());
 
         foreach (var side in DirectionExtensions.All)
@@ -174,12 +189,13 @@ public partial class RoomNode : Node2D
         }
 
         DrawCrystals();
+        DrawProps(); // after walls so racks/shelves/bells sit in front of the tall north face
 
         foreach (var side in DirectionExtensions.All)
             if (Room.GetExit(side) == ExitState.Locked) DrawLockedDoor(side);
 
         // Bottom-right: the top corners belong to the HUD and minimap.
-        DrawString(ThemeDB.FallbackFont, new Vector2(0, bounds.Size.Y - 14), Label(Room.Type), HorizontalAlignment.Right, bounds.Size.X - 14, 8, Palette.Dim);
+        DrawString(UiFonts.Regular, new Vector2(0, bounds.Size.Y - 14), Label(Room.Type), HorizontalAlignment.Right, bounds.Size.X - 14, 8, Palette.Dim);
     }
 
     // ── Code-drawn tiles (stand-ins for a tileset; same look every time for the same room) ──
@@ -223,28 +239,37 @@ public partial class RoomNode : Node2D
         }
     }
 
+    /// <summary>Ambient occlusion: soft dark bands along the floor where it meets the walls.</summary>
+    private void DrawFloorAo(Rect2 bounds)
+    {
+        const float depth = 12f;
+        var ao = new Color(Palette.Void, 0.4f);
+        var soft = new Color(Palette.Void, 0.18f);
+        // North (under the tall face), south, west, east — keep doorway centres clearer.
+        DrawRect(new Rect2(0, WorldLayout.WallThickness, bounds.Size.X, depth), ao);
+        DrawRect(new Rect2(0, bounds.Size.Y - WorldLayout.WallThickness - depth, bounds.Size.X, depth), soft);
+        DrawRect(new Rect2(WorldLayout.WallThickness, 0, depth, bounds.Size.Y), soft);
+        DrawRect(new Rect2(bounds.Size.X - WorldLayout.WallThickness - depth, 0, depth, bounds.Size.Y), soft);
+    }
+
     private void DrawWall(Rect2 rect, Direction side)
     {
-        DrawRect(rect, Palette.Wall);
-        var mortar = new Color(Palette.Void, 0.55f);
-        bool horizontal = side is Direction.North or Direction.South;
+        // North: draw the tall 3/4 front face first (into the room), then the top ledge.
+        if (side == Direction.North)
+        {
+            var face = new Rect2(rect.Position.X, rect.End.Y, rect.Size.X, WallFaceHeight);
+            // Brick face in stone violet, darkening toward the floor so it reads as a vertical surface.
+            DrawRect(face, new Color("3a2163"));
+            DrawRect(new Rect2(face.Position.X, face.Position.Y + face.Size.Y * 0.55f, face.Size.X, face.Size.Y * 0.45f), new Color("2a1a45"));
+            DrawBrickCourses(face, horizontal: true, side);
+            // Lit top edge, a dark shadow line where the face meets the floor, and a soft cast shadow on the floor.
+            DrawLine(face.Position, new Vector2(face.End.X, face.Position.Y), Palette.WallEdge, 1.5f);
+            DrawLine(new Vector2(face.Position.X, face.End.Y - 1), new Vector2(face.End.X, face.End.Y - 1), Palette.Void, 1.5f);
+            DrawRect(new Rect2(face.Position.X, face.End.Y, face.Size.X, 5), new Color(Palette.Void, 0.35f));
+        }
 
-        if (horizontal)
-        {
-            // One course of 16px bricks, offset per room so walls don't look stamped.
-            float offset = Hash(Room.Id.X, Room.Id.Y, 0, (int)side) % 16;
-            for (float x = rect.Position.X - offset; x < rect.End.X; x += 16)
-                if (x > rect.Position.X) DrawLine(new Vector2(x, rect.Position.Y), new Vector2(x, rect.End.Y), mortar);
-        }
-        else
-        {
-            for (float y = rect.Position.Y + 8; y < rect.End.Y; y += 8)
-            {
-                DrawLine(new Vector2(rect.Position.X, y), new Vector2(rect.End.X, y), mortar);
-                float x = rect.Position.X + ((int)(y / 8) % 2 == 0 ? 2 : 5);
-                DrawLine(new Vector2(x, y), new Vector2(x, y + 8), mortar);
-            }
-        }
+        DrawRect(rect, Palette.Wall);
+        DrawBrickCourses(rect, horizontal: side is Direction.North or Direction.South, side);
 
         // Lit top/left edges, dark edge where the wall meets the floor.
         DrawLine(rect.Position, new Vector2(rect.End.X, rect.Position.Y), Palette.WallEdge);
@@ -257,6 +282,173 @@ public partial class RoomNode : Node2D
             _ => (rect.Position, new Vector2(rect.Position.X, rect.End.Y)),
         };
         DrawLine(inner.Item1, inner.Item2, Palette.Void, 1f);
+    }
+
+    private void DrawBrickCourses(Rect2 rect, bool horizontal, Direction side)
+    {
+        var mortar = new Color(Palette.Void, 0.55f);
+        if (horizontal)
+        {
+            float offset = Hash(Room.Id.X, Room.Id.Y, 0, (int)side) % 16;
+            for (float x = rect.Position.X - offset; x < rect.End.X; x += 16)
+                if (x > rect.Position.X) DrawLine(new Vector2(x, rect.Position.Y), new Vector2(x, rect.End.Y), mortar);
+            for (float y = rect.Position.Y + 6; y < rect.End.Y; y += 6)
+                DrawLine(new Vector2(rect.Position.X, y), new Vector2(rect.End.X, y), new Color(Palette.Void, 0.35f));
+        }
+        else
+        {
+            for (float y = rect.Position.Y + 8; y < rect.End.Y; y += 8)
+            {
+                DrawLine(new Vector2(rect.Position.X, y), new Vector2(rect.End.X, y), mortar);
+                float x = rect.Position.X + ((int)(y / 8) % 2 == 0 ? 2 : 5);
+                DrawLine(new Vector2(x, y), new Vector2(x, y + 8), mortar);
+            }
+        }
+    }
+
+    /// <summary>Decorative props by room type. No collision — stay clear of doorway lanes (~centre of each side).</summary>
+    private void DrawProps()
+    {
+        switch (Room.Type)
+        {
+            case RoomType.Library: DrawLibraryProps(); break;
+            case RoomType.Merchant: DrawMerchantProps(); break;
+            case RoomType.GuardPost: DrawGuardProps(); break;
+            case RoomType.Vault: DrawVaultProps(); break;
+            case RoomType.RelicChamber: DrawRelicProps(); break;
+            case RoomType.EchoChamber: DrawEchoProps(); break;
+            case RoomType.HushRoom: DrawHushProps(); break;
+        }
+    }
+
+    private void DrawLibraryProps()
+    {
+        // Shelves along the north face (left and right of the door gap).
+        // A row against the north face right of the doorway, plus one by the south wall — clear of the HUD panels.
+        DrawShelf(new Vector2(280, WorldLayout.WallThickness + WallFaceHeight + 14));
+        DrawShelf(new Vector2(334, WorldLayout.WallThickness + WallFaceHeight + 14));
+        DrawShelf(new Vector2(286, WorldLayout.RoomHeight - 14));
+    }
+
+    private void DrawShelf(Vector2 at)
+    {
+        DrawRect(new Rect2(at.X, at.Y, 48, 4), Palette.Wall);
+        DrawRect(new Rect2(at.X, at.Y - 16, 48, 16), new Color("2a1a45"));
+        DrawRect(new Rect2(at.X, at.Y - 16, 48, 16), Palette.Void, filled: false, width: 1f);
+        DrawLine(new Vector2(at.X, at.Y - 16), new Vector2(at.X + 48, at.Y - 16), Palette.WallEdge);
+        for (int i = 0; i < 5; i++)
+        {
+            float x = at.X + 4 + i * 9;
+            var book = new Color[] { Palette.Accent, Palette.WallEdge, new Color("c8a2ff"), Palette.Dim, Palette.White }[i];
+            DrawRect(new Rect2(x, at.Y - 14, 6, 12), book);
+        }
+    }
+
+    private void DrawMerchantProps()
+    {
+        // Rug under the middle of the room.
+        var rug = new Rect2(WorldLayout.RoomWidth / 2 - 48, WorldLayout.RoomHeight / 2 + 10, 96, 36);
+        DrawRect(rug, new Color("2a1a45"));
+        DrawRect(rug, Palette.Accent, filled: false, width: 1f);
+        DrawRect(rug.Grow(-4), new Color(Palette.Wall, 0.35f), filled: false, width: 1f);
+        // Counter
+        var counter = new Rect2(WorldLayout.RoomWidth / 2 - 40, WorldLayout.RoomHeight / 2 - 8, 80, 14);
+        DrawRect(counter, Palette.Wall);
+        DrawRect(counter, Palette.Void, filled: false, width: 1f);
+        DrawLine(counter.Position, new Vector2(counter.End.X, counter.Position.Y), Palette.WallEdge);
+    }
+
+    private void DrawGuardProps()
+    {
+        // Against the side walls, away from doorways, chests and the HUD.
+        DrawWeaponRack(new Vector2(WorldLayout.WallThickness + 4, 166));
+        DrawWeaponRack(new Vector2(WorldLayout.RoomWidth - WorldLayout.WallThickness - 20, 70));
+        // Training ring so the post reads even when racks sit in shadow.
+        var c = WorldLayout.RoomSize / 2f + new Vector2(0, 28);
+        DrawArc(c, 22, 0, Mathf.Tau, 24, new Color(Palette.Dim, 0.55f), 1f);
+    }
+
+    private void DrawWeaponRack(Vector2 at)
+    {
+        DrawRect(new Rect2(at.X, at.Y, 16, 28), Palette.Wall);
+        DrawRect(new Rect2(at.X, at.Y, 16, 28), Palette.Void, filled: false, width: 1f);
+        DrawLine(at + new Vector2(0, 0), at + new Vector2(16, 0), Palette.WallEdge);
+        DrawLine(at + new Vector2(4, 4), at + new Vector2(4, 24), Palette.Dim);
+        DrawLine(at + new Vector2(12, 4), at + new Vector2(12, 24), Palette.Dim);
+        DrawRect(new Rect2(at.X + 2, at.Y + 6, 3, 10), new Color("7d6a9e"));
+        DrawRect(new Rect2(at.X + 11, at.Y + 8, 3, 12), new Color("c8a2ff"));
+        DrawRect(new Rect2(at.X + 2, at.Y + 5, 3, 2), Palette.White);
+        DrawRect(new Rect2(at.X + 11, at.Y + 7, 3, 2), Palette.White);
+    }
+
+    private void DrawVaultProps()
+    {
+        DrawGoldPile(new Vector2(300, WorldLayout.RoomHeight - 40));
+        DrawGoldPile(new Vector2(440, 200));
+        DrawGoldPile(new Vector2(120, 104));
+    }
+
+    private void DrawGoldPile(Vector2 at)
+    {
+        DrawColoredPolygon([at + new Vector2(-8, 4), at + new Vector2(0, -6), at + new Vector2(8, 4)], new Color("2a1a45"));
+        for (int i = 0; i < 5; i++)
+        {
+            float x = at.X - 6 + i * 3;
+            float y = at.Y - 2 + (i % 2);
+            DrawRect(new Rect2(x, y, 2, 2), i == 2 ? Palette.White : new Color("e3c7ff"));
+        }
+    }
+
+    private void DrawRelicProps()
+    {
+        DrawPillar(new Vector2(110, 96));
+        DrawPillar(new Vector2(WorldLayout.RoomWidth - 110, 96));
+        DrawPillar(new Vector2(110, 186));
+        DrawPillar(new Vector2(WorldLayout.RoomWidth - 110, 186));
+        // Rune floor ring in the centre.
+        var c = WorldLayout.RoomSize / 2f;
+        DrawArc(c, 42, 0, Mathf.Tau, 32, new Color(Palette.Accent, 0.45f), 1f);
+        for (int i = 0; i < 8; i++)
+        {
+            var p = c + Vector2.FromAngle(i * Mathf.Tau / 8f) * 42;
+            DrawRect(new Rect2(p.X - 1, p.Y - 1, 2, 2), Palette.White);
+        }
+    }
+
+    private void DrawPillar(Vector2 at)
+    {
+        DrawRect(new Rect2(at.X - 6, at.Y - 20, 12, 28), new Color("2a1a45"));
+        DrawRect(new Rect2(at.X - 7, at.Y - 22, 14, 4), Palette.Wall);
+        DrawRect(new Rect2(at.X - 7, at.Y + 6, 14, 4), Palette.Wall);
+        DrawLine(new Vector2(at.X - 6, at.Y - 20), new Vector2(at.X - 6, at.Y + 6), Palette.WallEdge);
+        DrawRect(new Rect2(at.X - 1, at.Y - 10, 2, 2), Palette.Accent);
+    }
+
+    private void DrawEchoProps()
+    {
+        // Bells hang into the lit centre so they stay readable under the player light.
+        // Away from the HUD corners, doorway lanes and chest spots.
+        DrawBell(new Vector2(120, 80));
+        DrawBell(new Vector2(WorldLayout.RoomWidth - 120, 80));
+        DrawBell(new Vector2(196, 168));
+        DrawBell(new Vector2(WorldLayout.RoomWidth - 196, 168));
+    }
+
+    private void DrawBell(Vector2 at)
+    {
+        DrawLine(at, at + new Vector2(0, 10), Palette.WallEdge);
+        DrawColoredPolygon([at + new Vector2(-6, 10), at + new Vector2(0, 22), at + new Vector2(6, 10)], new Color("c8a2ff"));
+        DrawColoredPolygon([at + new Vector2(-6, 10), at + new Vector2(0, 22), at + new Vector2(-1, 10)], Palette.WallEdge);
+        DrawRect(new Rect2(at.X - 1, at.Y + 20, 2, 3), Palette.White);
+    }
+
+    private void DrawHushProps()
+    {
+        // Soft carpets — large muted rectangles.
+        DrawRect(new Rect2(64, 70, 120, 60), new Color("1d1030"));
+        DrawRect(new Rect2(64, 70, 120, 60), new Color(Palette.Dim, 0.35f), filled: false, width: 1f);
+        DrawRect(new Rect2(WorldLayout.RoomWidth - 184, 120, 100, 50), new Color("1d1030"));
+        DrawRect(new Rect2(WorldLayout.RoomWidth - 184, 120, 100, 50), new Color(Palette.Dim, 0.35f), filled: false, width: 1f);
     }
 
     /// <summary>A few amethyst clusters growing from the wall base, never in front of a doorway.</summary>
@@ -280,7 +472,7 @@ public partial class RoomNode : Node2D
 
             yield return side switch
             {
-                Direction.North => new Vector2(along * WorldLayout.RoomWidth, WorldLayout.WallThickness + 3),
+                Direction.North => new Vector2(along * WorldLayout.RoomWidth, WorldLayout.WallThickness + WallFaceHeight + 3),
                 Direction.South => new Vector2(along * WorldLayout.RoomWidth, WorldLayout.RoomHeight - WorldLayout.WallThickness - 1),
                 Direction.West => new Vector2(WorldLayout.WallThickness + 4, along * WorldLayout.RoomHeight),
                 _ => new Vector2(WorldLayout.RoomWidth - WorldLayout.WallThickness - 4, along * WorldLayout.RoomHeight),
@@ -310,7 +502,7 @@ public partial class RoomNode : Node2D
             float pulse = 0.5f + 0.5f * Mathf.Sin((float)_time * 6f);
             DrawCircle(center, 30, new Color(Palette.White, 0.05f + 0.08f * pulse));
             DrawArc(center, 34 + pulse * 2, 0, Mathf.Tau, 48, Palette.White, 1.5f);
-            DrawString(ThemeDB.FallbackFont, new Vector2(center.X - 40, center.Y + 50), "ESCAPE HERE", HorizontalAlignment.Center, 80, 8, Palette.White);
+            DrawString(UiFonts.Regular, new Vector2(center.X - 40, center.Y + 50), "ESCAPE HERE", HorizontalAlignment.Center, 80, 8, Palette.White);
         }
         var ring = new Color(Palette.Wall, 0.9f);
         DrawArc(center, 34, 0, Mathf.Tau, 48, ring, 1f);

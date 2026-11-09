@@ -7,7 +7,7 @@ public static class MenuStyle
 {
     public static Theme Create()
     {
-        var theme = new Theme { DefaultFontSize = 10 };
+        var theme = new Theme { DefaultFontSize = 10, DefaultFont = UiFonts.Regular };
 
         theme.SetStylebox("normal", "Button", Box(new Color("1d1030"), Palette.Wall));
         theme.SetStylebox("hover", "Button", Box(new Color("2a1a45"), Palette.Accent));
@@ -28,7 +28,20 @@ public static class MenuStyle
         theme.SetColor("caret_color", "LineEdit", Palette.White);
         theme.SetFontSize("font_size", "LineEdit", 10);
 
-        theme.SetStylebox("panel", "PanelContainer", Box(new Color(0.07f, 0.04f, 0.12f, 0.9f), Palette.Wall, padding: 10));
+        theme.SetStylebox("panel", "PanelContainer", Box(new Color(0.07f, 0.04f, 0.12f, 0.96f), Palette.Wall, padding: 10));
+
+        // Sliders: visible track + grabber on the dark violet panels.
+        theme.SetStylebox("slider", "HSlider", new StyleBoxFlat
+        {
+            BgColor = new Color("0d0716"),
+            BorderColor = Palette.Wall,
+            BorderWidthLeft = 1, BorderWidthTop = 1, BorderWidthRight = 1, BorderWidthBottom = 1,
+            ContentMarginTop = 4, ContentMarginBottom = 4,
+            CornerRadiusTopLeft = 2, CornerRadiusTopRight = 2, CornerRadiusBottomLeft = 2, CornerRadiusBottomRight = 2,
+        });
+        theme.SetStylebox("grabber_area", "HSlider", new StyleBoxFlat { BgColor = Palette.Accent });
+        theme.SetStylebox("grabber_area_highlight", "HSlider", new StyleBoxFlat { BgColor = Palette.White });
+        theme.SetConstant("center_grabber", "HSlider", 1);
         return theme;
     }
 

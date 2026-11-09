@@ -43,7 +43,7 @@ public partial class TierBanner : Control
         var screen = GetViewportRect().Size;
         var band = new Rect2(0, screen.Y * 0.32f, screen.X, 18);
         DrawRect(band, new Color(Palette.Void, 0.85f * alpha));
-        DrawString(ThemeDB.FallbackFont, new Vector2(0, band.Position.Y + 13), _text,
+        DrawString(UiFonts.Regular, new Vector2(0, band.Position.Y + 13), _text,
             HorizontalAlignment.Center, screen.X, 10, new Color(_color, alpha));
     }
 }

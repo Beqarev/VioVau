@@ -54,9 +54,12 @@ public partial class GameSession : Node, IEnemyWorld
     private TierBanner _banner = null!;
     private HandHud _hands = null!;
     private Scoreboard _scoreboard = null!;
+    private CollapseHud _collapseHud = null!;
+    private PauseMenu _pause = null!;
     private Label _info = null!;
     private double _elapsed;
     private double _endedFor;
+    private bool _endStingPlayed;
     private readonly Queue<double> _screenshotTimes = new(DevOptions.ScreenshotTimes.Order());
 
     public override void _Ready()
@@ -80,6 +83,7 @@ public partial class GameSession : Node, IEnemyWorld
         _net.PlayerNotified += OnPlayerNotified;
         _net.EnemyStatesReceived += OnEnemyStates;
         _net.ReviveProgress += OnReviveProgress;
+        Audio.Instance.Hearing = HearingAt;
     }
 
     public override void _ExitTree()
@@ -93,6 +97,7 @@ public partial class GameSession : Node, IEnemyWorld
         _net.PlayerNotified -= OnPlayerNotified;
         _net.EnemyStatesReceived -= OnEnemyStates;
         _net.ReviveProgress -= OnReviveProgress;
+        if (Audio.Instance.Hearing == HearingAt) Audio.Instance.Hearing = null;
     }
 
     // ── Setup ───────────────────────────────────────────────────────────────
@@ -169,14 +174,23 @@ public partial class GameSession : Node, IEnemyWorld
         hud.AddChild(_banner);
         _hands = new HandHud().Init(_view, LocalHands);
         hud.AddChild(_hands);
-        hud.AddChild(new CollapseHud().Init(_view));
+        _collapseHud = new CollapseHud().Init(_view);
+        hud.AddChild(_collapseHud);
         _scoreboard = new Scoreboard().Init(_view, _net.IsHost);
         hud.AddChild(_scoreboard);
 
         _info = new Label { Position = new Vector2(196, 1) }; // top centre; the bottom-left belongs to the hand
+        _info.AddThemeFontOverride("font", UiFonts.Regular);
         _info.AddThemeFontSizeOverride("font_size", 8);
         _info.AddThemeColorOverride("font_color", Palette.Dim);
         hud.AddChild(_info);
+
+        _pause = new PauseMenu();
+        AddChild(_pause);
+
+        bool warden = _view.Enemies.Values.Any(e => e.Kind == EnemyKind.Warden);
+        Audio.Instance.PlayExplore(_view.ThreatTier, warden);
+        if (_view.CollapseSeconds is not null) Audio.Instance.PlayCollapse();
     }
 
     // ── Per frame ───────────────────────────────────────────────────────────
@@ -215,7 +229,11 @@ public partial class GameSession : Node, IEnemyWorld
         _elapsed += delta;
         if (_screenshotTimes.Count > 0 && _elapsed >= _screenshotTimes.Peek()) SaveScreenshot(_screenshotTimes.Dequeue());
 
-        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")} · seed {_view.Seed} · Esc to leave";
+        if (_view.CollapseSeconds is not null && _view.Results is null && !double.IsNaN(_collapseHud.Remaining))
+            Audio.Instance.TickCollapse(_collapseHud.Remaining);
+        Audio.Instance.SetWardenPresent(_enemies.Values.Any(e => e.Kind == EnemyKind.Warden));
+
+        _info.Text = $"{(_net.IsHost ? "HOST" : "CLIENT")} · seed {_view.Seed} · Esc: pause";
         // Only at the start: afterwards it would cover whoever stands in the north doorway.
         _info.Modulate = new Color(1, 1, 1, (float)Math.Clamp(6 - _elapsed, 0, 1));
     }
@@ -486,6 +504,7 @@ public partial class GameSession : Node, IEnemyWorld
                     chest.Refresh();
                     Fx.ChestOpened(_world, chest.Position);
                     _world.AddChild(new FloatingText().Init(chest.Position + new Vector2(0, -16), $"+{opened.Points}p", Palette.White));
+                    Audio.Instance.PlaySfxAt(_world, "chest_open", chest.Position, (float)_view.Config.Threat.OpenChest);
                 }
                 break;
 
@@ -495,26 +514,33 @@ public partial class GameSession : Node, IEnemyWorld
                 {
                     Fx.KeyTaken(_world, key.Position);
                     key.Refresh();
+                    Audio.Instance.PlaySfxAt(_world, "key_pickup", key.Position, volume: 0.8f);
                 }
                 break;
 
             case ExitUnlocked unlocked:
                 GD.Print($"[Game {_elapsed:0.0}s] {unlocked.Player} unlocked {unlocked.Side} of {unlocked.Room}");
                 if (_rooms.TryGetValue(unlocked.Room, out var near)) near.RefreshExits();
-                Fx.DoorUnlocked(_world, WorldLayout.DoorCenter(unlocked.Room, unlocked.Side));
+                var doorAt = WorldLayout.DoorCenter(unlocked.Room, unlocked.Side);
+                Fx.DoorUnlocked(_world, doorAt);
+                Audio.Instance.PlaySfxAt(_world, "door_unlock", doorAt, (float)_view.Config.Threat.UnlockExit);
                 if (_view.Dungeon.Neighbor(unlocked.Room, unlocked.Side) is { } far && _rooms.TryGetValue(far.Id, out var farNode))
                     farNode.RefreshExits();
                 break;
 
             case NoiseMade noise when _characters.TryGetValue(noise.Player, out var maker):
                 _world.AddChild(new NoiseRing().Init(maker.GlobalPosition, noise.Amount));
+                Audio.Instance.PlaySfxAt(_world, "noise_ring", maker.GlobalPosition, (float)noise.Amount);
                 break;
 
             case CardPlayed played when _characters.TryGetValue(played.Player, out var player):
-                var name = _view.Config.CardSet.Get(played.Card)?.Name ?? played.Card.Value;
+                var cardDef = _view.Config.CardSet.Get(played.Card);
+                var name = cardDef?.Name ?? played.Card.Value;
                 GD.Print($"[Game {_elapsed:0.0}s] {played.Player} played {name}");
                 _world.AddChild(new FloatingText().Init(player.GlobalPosition + new Vector2(0, -22), name.ToUpperInvariant(),
-                    _view.Config.CardSet.Get(played.Card) is { } def ? CardStyle.CategoryColor(def.Category) : Palette.White));
+                    cardDef is { } def ? CardStyle.CategoryColor(def.Category) : Palette.White));
+                if (cardDef is not null)
+                    Audio.Instance.PlayCard(cardDef.Category, player.GlobalPosition, _world);
                 break;
 
             case MovementEffect move when _characters.TryGetValue(move.Player, out var mover):
@@ -552,6 +578,9 @@ public partial class GameSession : Node, IEnemyWorld
                 GD.Print($"[Game {_elapsed:0.0}s] {hit.Player} hit by {hit.Enemy} → {hit.Hearts} hearts");
                 hurt.ShowHurt(_view.Config.EnemySet.Health.InvulnerableSeconds);
                 Fx.Hit(_world, hurt.GlobalPosition);
+                Audio.Instance.PlaySfxAt(_world, "player_hurt", hurt.GlobalPosition, volume: 1f);
+                if (_enemies.TryGetValue(hit.Enemy, out var hitter))
+                    Audio.Instance.PlaySfxAt(_world, "sentry_hit", hitter.GlobalPosition, volume: 1f);
                 if (hurt.IsLocal) _screens.Shake(3f);
                 break;
 
@@ -559,12 +588,14 @@ public partial class GameSession : Node, IEnemyWorld
                 GD.Print($"[Game {_elapsed:0.0}s] {downed.Player} is DOWN");
                 fallen.SetDowned(true);
                 _world.AddChild(new FloatingText().Init(fallen.GlobalPosition + new Vector2(0, -22), "DOWN!", Palette.White));
+                Audio.Instance.PlaySfxAt(_world, "player_downed", fallen.GlobalPosition);
                 break;
 
             case PlayerRevived revived when _characters.TryGetValue(revived.Player, out var risen):
                 GD.Print($"[Game {_elapsed:0.0}s] {revived.By} revived {revived.Player}");
                 risen.SetDowned(false);
                 _world.AddChild(new FloatingText().Init(risen.GlobalPosition + new Vector2(0, -22), "BACK UP", Palette.Accent));
+                Audio.Instance.PlaySfxAt(_world, "player_revived", risen.GlobalPosition);
                 break;
 
             case PlayerDied died when _characters.TryGetValue(died.Player, out var gone):
@@ -572,6 +603,7 @@ public partial class GameSession : Node, IEnemyWorld
                 GD.Print($"[Game {_elapsed:0.0}s] {died.Player} DIED");
                 _world.AddChild(new FloatingText().Init(gone.GlobalPosition + new Vector2(0, -22), $"{gone.DisplayName.ToUpperInvariant()} FELL", Palette.White));
                 gone.SetDead();
+                Audio.Instance.PlaySfxAt(_world, "player_died", gone.GlobalPosition);
                 break;
 
             case LootDropped dropped when _view.Dungeon.GetLoot(dropped.Bag) is { } bagItem:
@@ -589,6 +621,13 @@ public partial class GameSession : Node, IEnemyWorld
                 GD.Print($"[Game {_elapsed:0.0}s] Run ended: {ended.Reason} — " +
                     string.Join(", ", ended.Results.Select(r => $"{r.Player} {r.Outcome} {r.Banked}p{(r.Winner ? " WINNER" : "")}")));
                 _scoreboard.ShowResults();
+                if (!_endStingPlayed)
+                {
+                    _endStingPlayed = true;
+                    bool anyEscaped = ended.Results.Any(r => r.Outcome == RunOutcome.Escaped);
+                    if (anyEscaped) Audio.Instance.PlayVictory();
+                    else Audio.Instance.PlayDeath();
+                }
                 break;
 
             case RelicTaken relic when _characters.TryGetValue(relic.Player, out var lifter):
@@ -597,6 +636,7 @@ public partial class GameSession : Node, IEnemyWorld
                 {
                     Fx.RelicTaken(_world, relicNode.Position);
                     relicNode.Refresh();
+                    Audio.Instance.PlaySfxAt(_world, "relic_lift", relicNode.Position, (float)_view.Config.Threat.TakeRelic);
                 }
                 lifter.CarryingRelic = true;
                 _world.AddChild(new FloatingText().Init(lifter.GlobalPosition + new Vector2(0, -28), $"RELIC +{relic.Points}", Palette.White));
@@ -608,6 +648,7 @@ public partial class GameSession : Node, IEnemyWorld
                 _world.AddChild(new FloatingText().Init(escapee.GlobalPosition + new Vector2(0, -22), $"ESCAPED  {escaped.Banked}p", Palette.White));
                 Fx.Escaped(_world, escapee.GlobalPosition);
                 escapee.SetEscaped();
+                Audio.Instance.PlaySfxAt(_world, "escape", escapee.GlobalPosition, volume: 1.1f);
                 break;
 
             case CollapseStarted collapse:
@@ -615,6 +656,7 @@ public partial class GameSession : Node, IEnemyWorld
                 _banner.Show(collapse.Reason.ToUpperInvariant(), Palette.White, 4);
                 if (_rooms.TryGetValue(_view.Dungeon.Entrance, out var lobby)) lobby.Collapsing = true;
                 _screens.Shake(4f);
+                Audio.Instance.PlayCollapse();
                 break;
 
             case CardTaken taken:
@@ -627,6 +669,8 @@ public partial class GameSession : Node, IEnemyWorld
                 GD.Print($"[Game {_elapsed:0.0}s] Threat tier {tier.Tier}: {config.TierName(tier.Tier)}");
                 _banner.Show($"THREAT RISES  —  {config.TierName(tier.Tier).ToUpperInvariant()}",
                     ThreatHud.TierColor(tier.Tier, config.TierThresholds.Count));
+                Audio.Instance.PlaySfx("tier_rise", 0.9f + tier.Tier * 0.08f);
+                Audio.Instance.SetThreatTier(tier.Tier);
                 break;
         }
     }
@@ -670,11 +714,7 @@ public partial class GameSession : Node, IEnemyWorld
             return;
         }
 
-        if (e is InputEventKey { Pressed: true, Echo: false, PhysicalKeycode: Key.Escape })
-        {
-            GetViewport().SetInputAsHandled();
-            _net.Leave();
-        }
+        // Esc is handled by PauseMenu (Resume / Settings / Leave run).
     }
 
     private void SaveScreenshot(double time)
@@ -717,6 +757,25 @@ public partial class GameSession : Node, IEnemyWorld
         }
     }
 
+    /// <summary>
+    /// Sound falloff by rooms: full in a room with one of this machine's players, ~40% next door, ~15% two rooms
+    /// away, a faint echo beyond. Spectators hear from the players still inside.
+    /// </summary>
+    private float HearingAt(Vector2 position)
+    {
+        var listeners = _characters.Values.Where(c => c.IsLocal && c.IsInside).ToList();
+        if (listeners.Count == 0) listeners = _characters.Values.Where(c => c.IsInside).ToList();
+        if (listeners.Count == 0) return 1f;
+
+        var room = WorldLayout.RoomAt(0, position);
+        int rooms = listeners.Min(c =>
+        {
+            var at = WorldLayout.RoomAt(0, c.GlobalPosition);
+            return Math.Abs(at.X - room.X) + Math.Abs(at.Y - room.Y);
+        });
+        return rooms switch { 0 => 1f, 1 => 0.4f, 2 => 0.15f, _ => 0.05f };
+    }
+
     private void OnReviveProgress(PlayerId target, float progress)
     {
         if (_characters.TryGetValue(target, out var character)) character.ShowReviveProgress(progress);
@@ -734,12 +793,13 @@ public partial class GameSession : Node, IEnemyWorld
         _enemyLayer.AddChild(node);
         _enemies[spawned.Enemy] = node;
 
-        if (spawned.Target is { } strikeTarget)
+        if (spawned.Kind == EnemyKind.Warden)
         {
-            GD.Print($"[Game {_elapsed:0.0}s] {spawned.Kind} {spawned.Enemy} sent after {strikeTarget} in {spawned.Room}");
-            if (spawned.Kind == EnemyKind.Warden)
-                _banner.Show("THE WARDEN AWAKENS", Palette.White, 3.5);
+            Audio.Instance.SetWardenPresent(true);
+            _banner.Show("THE WARDEN AWAKENS", Palette.White, 3.5);
         }
+        if (spawned.Target is { } strikeTarget)
+            GD.Print($"[Game {_elapsed:0.0}s] {spawned.Kind} {spawned.Enemy} sent after {strikeTarget} in {spawned.Room}");
     }
 
     private void OnEnemyStates(int[] ids, Vector2[] positions, int[] states)

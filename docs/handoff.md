@@ -6,7 +6,7 @@ Read this first, then `CLAUDE.md`, `docs/design.md`, `docs/architecture.md`, `do
 Violet Vaults is a 1–4 player **semi-co-op, real-time, top-down dungeon extraction roguelike** (Godot 4.7 .NET / C#). Online (host-authoritative ENet) and couch co-op, mixable. Players loot a generated vault; every noisy action raises a **shared Threat** but noise is **attributed** per player, and the dungeon's Strikes and the Warden hunt the loudest. Points are personal: grab a Relic, escape through the Lobby before the Collapse seals everyone else in; most banked points wins. Cards are one-time abilities (hand of 3, secret hands).
 
 ## Where it stands
-Done and committed: M0 scaffold · M1 dungeon/networking/couch · M2 Threat/loot/keys · Art pipeline · M3 cards (16) · M4 enemies/health/revive/death · M5 relics/extraction/Collapse/scoreboard/rematch · **Look pass 1** (hi-res rendering, lighting + shadows, particles, camera slides, new menu). **153 Core tests pass.** The vertical slice is complete and playable.
+Done and committed: M0 scaffold · M1 dungeon/networking/couch · M2 Threat/loot/keys · Art pipeline · M3 cards (16) · M4 enemies/health/revive/death · M5 relics/extraction/Collapse/scoreboard/rematch · Look pass 1 · **pause/settings/exports** · **Audio** · **Look pass 2** (3/4 wall faces, AO, room props, Silkscreen, card art). **153 Core tests pass.** The vertical slice is complete and playable.
 
 ## Non-negotiable architecture rules
 - Game rules live in `src/VioVau.Core` (plain C#, **no Godot** — a test enforces it). Godot (`game/`) does physics, rendering, input, audio, networking.
@@ -49,24 +49,22 @@ $G --path game -- --name=Guest --port=7799 --join=127.0.0.1 --autopilot &
 
 ## Next tasks, in order
 
-### 1. Builds for friends + pause/settings
-- Export presets for **Windows, macOS, Linux** (`game/export_presets.cfg` is gitignored — commit a template or document it). Make sure `game/data/*.json` is included (export filter `*.json`). One zip per platform.
-- **Pause / Esc menu** in a run: Resume, Settings, Leave run. Esc currently leaves immediately; move that into the menu.
-- **Settings**: fullscreen/windowed, master/music/SFX volume (saved to `user://settings.json`).
-- A short "playing with friends" section in the README (Tailscale/ZeroTier, or forward UDP 7777).
+### 1. Builds for friends + pause/settings ✅
+- Export presets: `game/export_presets.cfg.example` (copy → gitignored `export_presets.cfg`). `*.json` included; macOS needs ETC2/ASTC. Builds land in `build/VioletVaults-{windows,macos,linux}.zip`.
+- **Pause / Esc menu** in a run: Resume, Settings, Leave run (`PauseMenu` — freezes the world for solo/couch; online peers keep simulating).
+- **Settings**: fullscreen + Master/Music/SFX volumes via `GameSettings` autoload → `user://settings.json`. Also on the main menu.
+- README: "Playing with friends" (Tailscale/ZeroTier / UDP 7777) + export steps.
 
-### 2. Audio
-- `Audio` autoload with buses **Master / Music / SFX** (volumes from settings).
-- **SFX** react to events in `GameSession.OnEvent` (and local input): footsteps (walk/sprint), chest open, key pickup, door unlock, card play (per category), noise ring, Sentry notice/wind-up/hit, player hurt/downed/revived/died, relic lift, escape, tier rise, Collapse alarm + last-15s ticking, UI hover/click. Positional (`AudioStreamPlayer2D`) for world sounds; louder noises should *sound* louder — noise is the core mechanic.
-- **Music**: three exploration layers (Calm / Restless / Hunting) in the **same key and tempo**, crossfaded by Threat tier; a Warden sting/layer; a Collapse track; a menu track. Loop points clean.
-- Files: `game/assets/audio/music/*.ogg` (loops), `game/assets/audio/sfx/*.wav` (short, normalized, mono for positional). Raw/unprocessed sources go in `game/assets/raw/` (ignored by Godot).
-- Prompts and the music brief are in `docs/art-bible.md` §5 Batch 5.
+### 2. Audio ✅
+- `Audio` autoload + Master/Music/SFX buses (volumes from `GameSettings`).
+- **SFX** wired in `GameSession` / player / enemies / UI: footsteps, chest, key, door, card-by-category, noise ring (volume scales with noise amount), Sentry notice/wind-up/hit, hurt/downed/revived/died, relic, escape, tier rise, Collapse alarm + last-15s ticks, UI hover/click. World sounds use `AudioStreamPlayer2D`.
+- **Music**: D minor / 70 bpm explore layers (Calm → Restless → Hunting) crossfaded by Threat; Warden layer; Collapse (140 bpm); menu; victory/death stings. Regenerated via `python3 tools/generate_audio.py`.
+- Files: `game/assets/audio/music/*.ogg`, `game/assets/audio/sfx/*.wav`; raw wavs in `game/assets/raw/audio/`.
 
-### 3. Look pass 2
-- Rooms: 3/4 **wall front faces** (north wall gets a visible face; walls feel tall), ambient-occlusion shading along walls, **props per room type** (Library shelves + lecterns, Merchant counter + rug, Guard Post weapon racks, Vault gold piles, Relic Chamber pillars + rune floor, Echo Chamber hanging bells, Hush Room carpets). Keep collision simple (props mostly decorative; any solid prop needs a collider and must not block doorway lanes or loot spots).
-- Optional real tileset (16×16) generated to the palette (see art bible) replacing the code-drawn floor/walls in `RoomNode`.
-- A **pixel font** (OFL-licensed, e.g. *Silkscreen*, *Pixelify Sans*, *m5x7*) for HUD/menus; keep sizes readable at 480×270 design scale.
-- Card art (32×32 per card, art bible Batch 3) shown in `HandHud` and on lecterns.
+### 3. Look pass 2 ✅
+- Rooms: 3/4 **wall front faces** (`WallFaceHeight` on north), floor AO bands, **decorative props** (no collision) per type — Library shelves, Merchant counter + rug, Guard racks + training ring, Vault gold piles, Relic pillars + rune ring, Echo bells, Hush carpets (`RoomNode`).
+- OFL **Silkscreen** in `game/assets/fonts/` via `UiFonts` (HUD + menus; AA off).
+- **Card art** 32×32 (palette-snapped via `ItemImporter`) in `assets/sprites/cards/`; shown in `HandHud` + lecterns (`CardArt`). Regen: `python3 tools/generate_card_art.py` then ItemImporter.
 
 ### 4. M6 Hub & meta-progression, then 5. M7 content
 See `docs/design.md` §10 and §8 and the roadmap in `docs/architecture.md`. Ideas already decided: meta currency = 100% of banked points on escape / 25% of carried on death; unlocks over raw stats; per-player local profiles in `user://profiles/`. M7: more floors + stairs, the Watcher (stationary eye), elite Sentries, tier effects (faster patrols, shifting doors), a player shove/stun, Shrines, Trap Halls, Void Doors with minibosses.
@@ -81,3 +79,12 @@ See `docs/design.md` §10 and §8 and the roadmap in `docs/architecture.md`. Ide
 - Plan briefly, then build; verify by running the game (autopilot + screenshots) — don't claim something works without seeing it.
 - Small, focused commits with clear messages per milestone (the user pushes).
 - Explain results in plain language: what changed, what was verified, what's left.
+
+## Lessons from the first Cursor pass (reviewed and fixed)
+- **Never ship an unverified build.** Use `tools/export.sh` — it fails loudly if a build lacks the game code (`data_VioVau_*`) or the data pack is tiny. A previous export produced a 74 KB pack and opened to nothing.
+- **Don't commit tool leftovers** (`.nuget-packages/`, `.tmp/`, `tools/__pycache__/`) or regenerable raw audio (`game/assets/raw/audio/`). All are gitignored now. Don't disable `NuGetAudit` — that was a sandbox workaround.
+- **Lay out text by measuring it** (`font.GetStringSize`), never with hard-coded x offsets: the pixel font (Silkscreen) is much wider than the default font. Cards have optional `shortName` in `cards.json` for tight spaces (`CardStyle.FitName`).
+- **Keep props and decoration out of HUD zones**: top-left Threat panel (~215×45 design px), top-right minimap (x > 400, y < 56), bottom-left hand (x < 200, y > 205), bottom-right room label. Also out of doorway lanes and loot spots.
+- **Highlight/tooltip drawing goes on a separate layer** (`LootNode`'s tooltip child), so the item itself stays at floor level behind players.
+- **Audio:** regenerate with `python3 tools/generate_audio.py` (loops are crossfaded by one beat and music is normalized to −2 dBFS). World sounds go through `Audio.PlaySfxAt`, which fades by room distance via `Audio.Hearing` (set by `GameSession`). Anything the AI does must also produce sounds on **clients** (derive them from synced state, not host-only logic).
+- **Verify visually** with screenshots after any UI/art change (`--always-on-top`, `--port=7799`); check split-screen and online (host + client), not just solo.

@@ -44,7 +44,7 @@ public partial class PlayerOverlay : Node2D
 
     public override void _Draw()
     {
-        var font = ThemeDB.FallbackFont;
+        var font = UiFonts.Regular;
         var color = Palette.PlayerColor(_colorIndex);
         DrawString(font, new Vector2(-3, _headY - 2), (_colorIndex + 1).ToString(), HorizontalAlignment.Left, -1, 8, color);
 

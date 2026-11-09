@@ -13,7 +13,7 @@ public partial class HandHud : Control
 {
     public readonly record struct LocalHand(PlayerId Player, int ColorIndex, InputDevice Device);
 
-    private const float CardHeight = 30f, Gap = 3f, Bottom = 3f;
+    private const float CardHeight = 44f, Gap = 3f, Bottom = 3f, ArtSize = 16f;
     private const double MessageSeconds = 2.5;
 
     private RunView _view = null!;
@@ -30,7 +30,7 @@ public partial class HandHud : Control
 
     public override void _Ready()
     {
-        _font = ThemeDB.FallbackFont;
+        _font = UiFonts.Regular;
         MouseFilter = MouseFilterEnum.Ignore;
         SetAnchorsPreset(LayoutPreset.FullRect);
     }
@@ -65,13 +65,12 @@ public partial class HandHud : Control
         var cards = _view.Config.CardSet;
         int slots = player.Hand.Length;
 
-        float width = Mathf.Min(54f, (region.Size.X - 8 - Gap * (slots - 1)) / slots);
+        float width = Mathf.Min(62f, (region.Size.X - 8 - Gap * (slots - 1)) / slots);
         float total = slots * width + (slots - 1) * Gap;
         // Alone on screen: bottom-left, clear of the south doorway. Split screen: centered under that player's view.
         bool alone = GetViewportRect().Size.X - region.Size.X < 1f;
         float x0 = alone ? region.Position.X + 6 : region.Position.X + (region.Size.X - total) / 2f;
         float y = region.End.Y - Bottom - CardHeight;
-        int maxChars = Mathf.Max(3, (int)((width - 4) / 5));
 
         for (int slot = 0; slot < slots; slot++)
         {
@@ -90,7 +89,15 @@ public partial class HandHud : Control
             DrawRect(rect, Palette.Void);
             DrawRect(new Rect2(rect.Position, new Vector2(rect.Size.X, 3)), color);
             DrawRect(rect, CardStyle.RarityColor(card.Rarity), filled: false, width: 1f);
-            DrawString(_font, rect.Position + new Vector2(3, 13), CardStyle.ShortName(card.Name, maxChars), HorizontalAlignment.Left, rect.Size.X - 4, 8, Palette.White);
+
+            // Layout, top to bottom: art · name · [button] ……… noise. Nothing overlaps.
+            if (CardArt.Get(card.Id) is { } art)
+            {
+                float ax = rect.Position.X + (rect.Size.X - ArtSize) / 2f;
+                DrawTextureRect(art, new Rect2(ax, rect.Position.Y + 5, ArtSize, ArtSize), false);
+            }
+            var name = CardStyle.FitName(_font, card, rect.Size.X - 6, 8);
+            DrawString(_font, new Vector2(rect.Position.X, rect.Position.Y + 30), name, HorizontalAlignment.Center, rect.Size.X, 8, Palette.White);
 
             // Button (bottom-left) and noise (bottom-right).
             var button = new Rect2(rect.Position + new Vector2(2, CardHeight - 11), new Vector2(9, 9));

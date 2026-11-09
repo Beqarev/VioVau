@@ -13,6 +13,9 @@ Read `docs/design.md` (rules) and `docs/architecture.md` (code structure) before
 - Every new rule gets a Core unit test. Tests may set internal state directly (`InternalsVisibleTo`), e.g. `player.CarriedPoints = 10`.
 - Events only the owning player may see implement `IPrivateEvent`; never put hidden info (hands) in public events.
 
+- Release builds: `tools/export.sh` (exports + verifies + zips). Never hand out a build it didn't verify.
+- UI text: measure with `font.GetStringSize`; never hard-code x offsets (pixel font is wide). Keep world decoration out of HUD zones (see `docs/handoff.md`).
+
 ## Commands
 - Build: `dotnet build VioVau.sln`
 - Test: `dotnet test VioVau.sln`

@@ -34,7 +34,7 @@ public partial class FloatingText : Node2D
         float t = (float)(_age / Duration);
         float rise = Mathf.Round(-t * 12f);
         var color = new Color(_color, 1f - t * t);
-        var font = ThemeDB.FallbackFont;
+        var font = UiFonts.Regular;
         // Dark backing so it reads on any floor.
         DrawString(font, new Vector2(-60 + 1, rise + 1), _text, HorizontalAlignment.Center, 120, 8, new Color(Palette.Void, color.A));
         DrawString(font, new Vector2(-60, rise), _text, HorizontalAlignment.Center, 120, 8, color);

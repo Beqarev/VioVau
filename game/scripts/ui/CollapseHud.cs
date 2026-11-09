@@ -49,7 +49,7 @@ public partial class CollapseHud : Control
         DrawRect(band, new Color(Palette.Void, 0.85f));
         DrawRect(band, urgent ? Palette.White : Palette.Accent, filled: false, width: 1f);
         var text = $"COLLAPSE  {(int)left / 60}:{(int)left % 60:00}";
-        DrawString(ThemeDB.FallbackFont, new Vector2(band.Position.X, band.Position.Y + 13), text, HorizontalAlignment.Center, band.Size.X, 10,
+        DrawString(UiFonts.Regular, new Vector2(band.Position.X, band.Position.Y + 13), text, HorizontalAlignment.Center, band.Size.X, 10,
             blink ? Palette.Accent : Palette.White);
     }
 }

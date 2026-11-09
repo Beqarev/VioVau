@@ -31,7 +31,7 @@
       "text": "For 8s you make no noise.",
       "effects": [{ "type": "Silence", "amount": 8 }] },
 
-    { "id": "smoke-veil", "name": "Smoke Veil", "category": "Stealth", "rarity": "Common", "noise": 0, "price": 8,
+    { "id": "smoke-veil", "name": "Smoke Veil", "shortName": "Smoke", "category": "Stealth", "rarity": "Common", "noise": 0, "price": 8,
       "text": "Half of your recent noise is forgotten.",
       "effects": [{ "type": "ScaleOwnNoise", "amount": 0.5 }] },
 
@@ -43,7 +43,7 @@
       "text": "Reveal every room next to you.",
       "effects": [{ "type": "RevealAdjacent" }] },
 
-    { "id": "void-sight", "name": "Void Sight", "category": "Utility", "rarity": "Rare", "noise": 1, "price": 14,
+    { "id": "void-sight", "name": "Void Sight", "shortName": "Void Eye", "category": "Utility", "rarity": "Rare", "noise": 1, "price": 14,
       "text": "Reveal every Vault and the Relic Chamber.",
       "effects": [{ "type": "RevealRooms", "rooms": ["Vault", "RelicChamber"] }] },
 
@@ -51,23 +51,23 @@
       "text": "Push 10 of your noise onto the nearest player.", "target": "otherPlayer",
       "effects": [{ "type": "ShiftNoise", "amount": 10 }] },
 
-    { "id": "pickpocket", "name": "Pickpocket", "category": "Social", "rarity": "Rare", "noise": 2, "price": 12,
+    { "id": "pickpocket", "name": "Pickpocket", "shortName": "Pickpkt", "category": "Social", "rarity": "Rare", "noise": 2, "price": 12,
       "text": "Steal a key — or up to 6 points — from a player beside you.", "target": "nearbyPlayer",
       "effects": [{ "type": "Steal", "amount": 6 }] },
 
-    { "id": "loot-magnet", "name": "Loot Magnet", "category": "Greed", "rarity": "Rare", "noise": 2, "price": 14,
+    { "id": "loot-magnet", "name": "Loot Magnet", "shortName": "Magnet", "category": "Greed", "rarity": "Rare", "noise": 2, "price": 14,
       "text": "Open every chest and grab every key in the room. Each chest still makes its noise.",
       "effects": [{ "type": "ClaimRoomLoot" }] },
 
-    { "id": "gilded-greed", "name": "Gilded Greed", "category": "Greed", "rarity": "Legendary", "noise": 4, "price": 20,
+    { "id": "gilded-greed", "name": "Gilded Greed", "shortName": "Gilded", "category": "Greed", "rarity": "Legendary", "noise": 4, "price": 20,
       "text": "Your next chest pays double.",
       "effects": [{ "type": "MultiplyNextChest", "amount": 2 }] },
 
-    { "id": "shared-fortune", "name": "Shared Fortune", "category": "Social", "rarity": "Common", "noise": 1, "price": 8,
+    { "id": "shared-fortune", "name": "Shared Fortune", "shortName": "Fortune", "category": "Social", "rarity": "Common", "noise": 1, "price": 8,
       "text": "You and the nearest player each gain 5 points.", "target": "otherPlayer",
       "effects": [{ "type": "GrantPoints", "amount": 5 }] },
 
-    { "id": "flash-powder", "name": "Flash Powder", "category": "Combat", "rarity": "Common", "noise": 2, "price": 8,
+    { "id": "flash-powder", "name": "Flash Powder", "shortName": "Flash", "category": "Combat", "rarity": "Common", "noise": 2, "price": 8,
       "text": "Stun every enemy in the room for 3s.",
       "effects": [{ "type": "StunEnemies", "amount": 3 }] },
 

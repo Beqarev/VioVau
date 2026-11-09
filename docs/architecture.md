@@ -91,7 +91,7 @@ RunState            # the whole run: players, dungeon, threat, rng, phase
 
 ## 7. Godot Project (`/game`)
 
-- **Autoloads** (keep few): `NetSession` (connection, roster, `RunState` on host, `RunView` everywhere). Later: `Profiles` (local meta saves), `Audio`.
+- **Autoloads** (keep few): `GameSettings` (`user://settings.json`: fullscreen + Master/Music/SFX volumes; creates the audio buses), `Audio` (music crossfade + SFX on those buses), `NetSession` (connection, roster, `RunState` on host, `RunView` everywhere). Later: `Profiles` (local meta saves).
 - **World layout:** all rooms of a floor sit side by side in world space (one room = 480×270 = one screen). Players walk continuously through door gaps; their room is derived from their position (`WorldLayout.RoomAt`).
 - **Input:** devices are polled directly (`InputDevice`: Keyboard WASD, Keyboard Arrows, Gamepad N) instead of the global InputMap, so several local players can share one machine. `LocalPlayers` holds this machine's slot → device mapping.
 - **Signals** are for view-side wiring. Core uses plain C# events; a `Session` adapter turns Core events into Godot signals for the UI.
@@ -157,6 +157,7 @@ The Godot project references `VioVau.Core` as a project reference so Core compil
 | M4 ✅ | Danger | Enemies, hearts, downed/revive, death & loot bags, Strikes, Warden |
 | M5 ✅ | Full run | Relics, extraction, Collapse, scoreboard → **vertical slice** |
 | L1 ✅ | Look pass 1 | Hi-res rendering, lighting & shadows, particles, camera slides, new menu |
+| L2 ✅ | Look pass 2 | 3/4 wall faces + AO, room props, Silkscreen HUD font, 32×32 card art |
 | M6 | Hub & meta | Lobby hub, profiles, passive cards, saves |
 | M7 | Content | More rooms, cards, enemies, floors |
 | M8 | Look & feel | Pixel art, palette, audio, juice |

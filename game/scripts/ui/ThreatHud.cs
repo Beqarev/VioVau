@@ -23,7 +23,7 @@ public partial class ThreatHud : Control
 
     public override void _Ready()
     {
-        _font = ThemeDB.FallbackFont;
+        _font = UiFonts.Regular;
         MouseFilter = MouseFilterEnum.Ignore;
         Position = new Vector2(4, 4);
         Size = new Vector2(BarWidth + 106, 22 + _view.Players.Count * RowHeight + Pad);
@@ -40,17 +40,48 @@ public partial class ThreatHud : Control
         QueueRedraw();
     }
 
+    private const int FontSize = 8, Gap = 6;
+
+    private float Width(string text) => _font.GetStringSize(text, HorizontalAlignment.Left, -1, FontSize).X;
+
+    /// <summary>Column positions measured from the actual font, so any font (pixel or not) lays out cleanly.</summary>
+    private (float Name, float Status, float Points, float Keys, float Share, float Total) Columns()
+    {
+        float name = Pad + 9;
+        float nameWidth = Math.Min(64, _view.Players.Select(p => Width(ShortName(p.DisplayName))).DefaultIfEmpty(30).Max());
+        int hearts = _view.Config.EnemySet.Health.Hearts;
+        float statusWidth = new[] { hearts * 7f, Width("ESCAPED"), Width("FALLEN"), Width("DOWN 20") }.Max();
+        float status = name + nameWidth + Gap;
+        float points = status + statusWidth + Gap;
+        float keys = points + Width("999P") + Gap;
+        float share = keys + Width("K9") + Gap;
+        float total = share + 30 + 3 + Width("100%") + Pad;
+        return (name, status, points, keys, share, total);
+    }
+
+    private string ShortName(string name)
+    {
+        // Trim names that would push the columns too far.
+        while (name.Length > 3 && Width(name) > 64) name = name[..^1];
+        return name;
+    }
+
     public override void _Draw()
     {
         var threat = _view.Config.Threat;
+        var cols = Columns();
+        if (!Mathf.IsEqualApprox(Size.X, cols.Total)) Size = new Vector2(Mathf.Max(BarWidth + Pad * 2, cols.Total), Size.Y);
         DrawRect(new Rect2(Vector2.Zero, Size), new Color(Palette.Void, 0.8f));
 
-        // Header: "THREAT 23  STIRRING"
+        // Header: "THREAT 23   STIRRING" — measured, so nothing collides.
         int tier = _view.ThreatTier;
         var tierColor = TierColor(tier, threat.TierThresholds.Count);
-        DrawString(_font, new Vector2(Pad, 10), "THREAT", HorizontalAlignment.Left, -1, 8, Palette.Dim);
-        DrawString(_font, new Vector2(Pad + 34, 10), $"{(int)_view.ThreatLevel}", HorizontalAlignment.Left, -1, 8, Palette.White);
-        DrawString(_font, new Vector2(Pad + 54, 10), threat.TierName(tier).ToUpperInvariant(), HorizontalAlignment.Left, -1, 8, tierColor);
+        float x = Pad;
+        DrawString(_font, new Vector2(x, 10), "THREAT", HorizontalAlignment.Left, -1, FontSize, Palette.Dim);
+        x += Width("THREAT") + 4;
+        DrawString(_font, new Vector2(x, 10), $"{(int)_view.ThreatLevel}", HorizontalAlignment.Left, -1, FontSize, Palette.White);
+        x += Width("100") + Gap;
+        DrawString(_font, new Vector2(x, 10), threat.TierName(tier).ToUpperInvariant(), HorizontalAlignment.Left, -1, FontSize, tierColor);
 
         // Meter with tier marks.
         var bar = new Rect2(Pad, 13, BarWidth, BarHeight);
@@ -59,8 +90,8 @@ public partial class ThreatHud : Control
         DrawRect(new Rect2(bar.Position, new Vector2(bar.Size.X * fill, bar.Size.Y)), tierColor);
         foreach (var threshold in threat.TierThresholds.Skip(1))
         {
-            float x = bar.Position.X + bar.Size.X * (float)(threshold / threat.Max);
-            DrawLine(new Vector2(x, bar.Position.Y - 1), new Vector2(x, bar.End.Y + 1), Palette.Dim);
+            float tx = bar.Position.X + bar.Size.X * (float)(threshold / threat.Max);
+            DrawLine(new Vector2(tx, bar.Position.Y - 1), new Vector2(tx, bar.End.Y + 1), Palette.Dim);
         }
         DrawRect(bar, Palette.Wall, filled: false, width: 1f);
 
@@ -69,10 +100,9 @@ public partial class ThreatHud : Control
         for (int i = 0; i < _view.Players.Count; i++)
         {
             if (_view.Player(_view.Players[i].Id) is not { } p) continue;
-            var color = Palette.PlayerColor(i);
+            var color = p.Dead ? Palette.Wall : Palette.PlayerColor(i);
             float baseline = y + 7;
 
-            if (p.Dead) color = Palette.Wall;
             if (p.CarryingRelic)
             {
                 // Crown before the name: everyone can see who has a Relic.
@@ -82,36 +112,37 @@ public partial class ThreatHud : Control
                 DrawRect(new Rect2(Pad + 5, y + 1, 1, 2), Palette.White);
             }
             else
-            DrawRect(new Rect2(Pad, y + 1, 5, 5), color);
-            var name = p.Info.DisplayName.Length > 9 ? p.Info.DisplayName[..9] : p.Info.DisplayName;
-            DrawString(_font, new Vector2(Pad + 8, baseline), name, HorizontalAlignment.Left, -1, 8, color);
+            {
+                DrawRect(new Rect2(Pad, y + 1, 5, 5), color);
+            }
+            DrawString(_font, new Vector2(cols.Name, baseline), ShortName(p.Info.DisplayName), HorizontalAlignment.Left, -1, FontSize, color);
 
             // Health: hearts, or a bleed-out countdown, or fallen / escaped.
             if (p.Extracted)
-                DrawString(_font, new Vector2(Pad + 56, baseline), "ESCAPED", HorizontalAlignment.Left, -1, 8, Palette.White);
+                DrawString(_font, new Vector2(cols.Status, baseline), "ESCAPED", HorizontalAlignment.Left, -1, FontSize, Palette.White);
             else if (p.Dead)
-                DrawString(_font, new Vector2(Pad + 56, baseline), "FALLEN", HorizontalAlignment.Left, -1, 8, Palette.Wall);
+                DrawString(_font, new Vector2(cols.Status, baseline), "FALLEN", HorizontalAlignment.Left, -1, FontSize, Palette.Wall);
             else if (p.Downed)
             {
                 double left = Math.Max(0, p.BleedOutSeconds - _downedFor.GetValueOrDefault(p.Info.Id));
                 bool blink = (int)(left * 2) % 2 == 0;
-                DrawString(_font, new Vector2(Pad + 56, baseline), $"DOWN {left:0}", HorizontalAlignment.Left, -1, 8, blink ? Palette.White : Palette.Accent);
+                DrawString(_font, new Vector2(cols.Status, baseline), $"DOWN {left:0}", HorizontalAlignment.Left, -1, FontSize, blink ? Palette.White : Palette.Accent);
             }
             else
             {
                 int max = _view.Config.EnemySet.Health.Hearts;
-                for (int h = 0; h < max; h++) DrawHeart(new Vector2(Pad + 56 + h * 7, y + 2), h < p.Hearts);
+                for (int h = 0; h < max; h++) DrawHeart(new Vector2(cols.Status + h * 7, y + 2), h < p.Hearts);
             }
 
             int points = p.Extracted ? p.Banked : p.CarriedPoints;
-            DrawString(_font, new Vector2(Pad + 92, baseline), $"{points}p", HorizontalAlignment.Left, -1, 8, p.Dead ? Palette.Wall : Palette.White);
-            DrawString(_font, new Vector2(Pad + 118, baseline), $"K{p.Keys}", HorizontalAlignment.Left, -1, 8, p.Keys > 0 ? Palette.White : Palette.Dim);
+            DrawString(_font, new Vector2(cols.Points, baseline), $"{points}p", HorizontalAlignment.Left, -1, FontSize, p.Dead ? Palette.Wall : Palette.White);
+            DrawString(_font, new Vector2(cols.Keys, baseline), $"K{p.Keys}", HorizontalAlignment.Left, -1, FontSize, p.Keys > 0 ? Palette.White : Palette.Dim);
 
             // Noise share: the louder you've been lately, the more the dungeon will hunt you.
-            var share = new Rect2(Pad + 138, y + 2, 40, 3);
+            var share = new Rect2(cols.Share, y + 2, 30, 3);
             DrawRect(share, Palette.Floor);
             DrawRect(new Rect2(share.Position, new Vector2(share.Size.X * (float)p.NoiseShare, share.Size.Y)), Palette.Accent);
-            DrawString(_font, new Vector2(share.End.X + 3, baseline), $"{Math.Round(p.NoiseShare * 100)}%", HorizontalAlignment.Left, -1, 8, Palette.Dim);
+            DrawString(_font, new Vector2(share.End.X + 3, baseline), $"{Math.Round(p.NoiseShare * 100)}%", HorizontalAlignment.Left, -1, FontSize, Palette.Dim);
 
             y += RowHeight;
         }

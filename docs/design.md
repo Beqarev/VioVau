@@ -29,7 +29,8 @@ Inspired by *Clank!* (shared danger, individual greed, noise attribution), with 
 - **Feedback:** sparkle bursts and floating "+Np" on chests, key and relic bursts, door-unlock runes, hit bursts + screen shake for the hit player, violet mist when a Sentry is destroyed, a column of light on escape, sprint dust, ambient dust in rooms on screen.
 - **Camera** slides between rooms instead of cutting.
 - **Menu:** atmospheric background, Play solo / Host / Join (6s timeout with a clear message) / Quit, a players-at-this-machine panel that becomes the lobby.
-- Still to come (Look pass 2): 3/4 wall faces and props per room type, a pixel font, sound and music.
+- **Audio (Batch 5):** Master/Music/SFX buses; exploration music layers (D minor, 70 bpm) crossfade with Threat; Warden layer; Collapse track (140 bpm); menu + victory/death stings. SFX for loot, cards, combat, UI; louder noise actions play louder.
+- Still to come (Look pass 2): 3/4 wall faces and props per room type, a pixel font.
 
 ## 4. Run Structure
 

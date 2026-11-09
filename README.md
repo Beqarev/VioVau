@@ -50,21 +50,24 @@ From the menu: **Play solo**, **Host a game** (friends join with your IP), or **
   - instance 2: `-- --name=Guest --join=127.0.0.1`
 
   The host starts automatically once 2 players are in. Click a window to give it keyboard focus.
-- `Esc` in-game leaves the session.
+- `Esc` in-game opens the pause menu (Resume / Settings / Leave run). Settings (fullscreen, volumes) also live on the main menu and save to `user://settings.json`.
 
-### Dev flags
+### Playing with friends (online)
 
-| Flag | Effect |
-|---|---|
-| `--name=X` | Player name |
-| `--wasd` / `--arrows` | Add a local keyboard player |
-| `--host` / `--join=IP` | Host or join immediately |
-| `--start-at=N` | Host starts the run once N players are in |
-| `--autopilot=all` | Every local player on this machine is an autopilot (couch tests) |
-| `--brutal` | 1 heart, fast sharp-eyed Sentries, strikes every 8s — to test downed / death / bags quickly |
-| `--seed=N` | Host uses this dungeon seed (reproducible runs) |
-| `--port=N` | Host/join on this UDP port instead of 7777 |
-| `--menu-shot` | Screenshot the menu into `--screenshot-dir` (dev) |
-| `--auto-rematch` | Host starts the next run 3s after the scoreboard |
-| `--autopilot` | This machine's first player plays by itself: loots chests, grabs keys, unlocks Vaults (key or Lockpick), takes Library/Merchant cards, plays a card every few seconds, sprints everywhere |
-| `--screenshot-at=2,8 --screenshot-dir=PATH` | Save screenshots at those seconds into the run |
+Godot talks over **UDP** (default port **7777**). Friends need a reachable IP:
+
+1. **Easiest:** put everyone on the same [Tailscale](https://tailscale.com/) or [ZeroTier](https://zerotier.com/) network and use the host's VPN IP in Join.
+2. **Same LAN:** use the host's local IP (`ipconfig` / System Settings → Network).
+3. **Over the internet without a VPN:** the host forwards **UDP 7777** on their router to their PC, then shares their public IP. (CGNAT / many mobile ISPs can't do this — use Tailscale instead.)
+
+Firewall tip: allow inbound UDP 7777 for the game (or Godot) on the host.
+
+### Export builds (Windows / macOS / Linux)
+
+```bash
+tools/export.sh
+```
+
+Builds all three platforms into `build/`, **verifies** each one (game code present, data pack a sane size — an export without them opens to nothing) and zips them with a `PLAYING.txt` for friends (`tools/friends-readme.txt`: how to open unsigned builds, Tailscale / port 7777, controls). Needs Godot 4.7 .NET export templates, either installed via *Editor → Manage Export Templates* or unpacked into `build/godot-templates/`. The first run creates `game/export_presets.cfg` from `game/export_presets.cfg.example` (the real file is gitignored).
+
+Builds aren't code-signed: on macOS friends right-click → Open the first time; on Windows "More info → Run anyway".

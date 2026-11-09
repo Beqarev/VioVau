@@ -1,0 +1,132 @@
+; Copy to export_presets.cfg (gitignored) and adjust paths / codesigning.
+; Requires Godot 4.7.x .NET export templates (Editor → Manage Export Templates),
+; OR unpack Godot_v4.7.2-stable_mono_export_templates.tpz and point custom_template/*
+; at the binaries (see README). macOS needs ETC2/ASTC enabled in Project Settings.
+; From the repo root:
+;   G=/Applications/Godot_mono.app/Contents/MacOS/Godot
+;   mkdir -p build/VioletVaults-{windows,macos,linux}
+;   $G --headless --path game --export-release "Windows Desktop" ../build/VioletVaults-windows/VioletVaults.exe
+;   $G --headless --path game --export-release "macOS" ../build/VioletVaults-macos/VioletVaults.zip
+;   $G --headless --path game --export-release "Linux" ../build/VioletVaults-linux/VioletVaults.x86_64
+; Zip each folder for friends. include_filter keeps game/data/*.json in the pack.
+
+[preset.0]
+
+name="Windows Desktop"
+platform="Windows Desktop"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter="*.json"
+exclude_filter=""
+export_path="../build/VioletVaults-windows/VioletVaults.exe"
+encryption_include_filters=""
+encryption_exclude_filters=""
+encrypt_pck=false
+encrypt_directory=false
+script_export_mode=2
+
+[preset.0.options]
+
+custom_template/debug=""
+custom_template/release=""
+debug/export_console_wrapper=1
+binary_format/embed_pck=true
+texture_format/s3tc_bptc=true
+texture_format/etc2_astc=false
+shader_baker/enabled=false
+binary_format/architecture="x86_64"
+codesign/enable=false
+application/modify_resources=true
+application/icon=""
+application/console_wrapper_icon=""
+application/icon_interpolation=4
+application/file_version=""
+application/product_version=""
+application/company_name="VioVau"
+application/product_name="Violet Vaults"
+application/file_description="Violet Vaults"
+application/copyright=""
+application/trademarks=""
+application/export_angle=0
+application/d3d12_export_toolkit_version=""
+application/agile_licensing=false
+ssh_remote_deploy/enabled=false
+
+[preset.1]
+
+name="macOS"
+platform="macOS"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter="*.json"
+exclude_filter=""
+export_path="../build/VioletVaults-macos/VioletVaults.zip"
+encryption_include_filters=""
+encryption_exclude_filters=""
+encrypt_pck=false
+encrypt_directory=false
+script_export_mode=2
+
+[preset.1.options]
+
+custom_template/debug=""
+custom_template/release=""
+debug/export_console_wrapper=1
+application/icon=""
+application/icon_interpolation=4
+application/bundle_identifier="com.viovau.violetvaults"
+application/signature=""
+application/app_category="Games"
+application/short_version="0.1.0"
+application/version="0.1.0"
+application/copyright=""
+application/min_macos_version_x86_64="10.13"
+application/min_macos_version_arm64="11.00"
+application/export_angle=0
+display/high_res=true
+texture_format/s3tc_bptc=true
+texture_format/etc2_astc=true
+shader_baker/enabled=false
+codesign/codesign=0
+codesign/entitlements/allow_jit_code_execution=true
+codesign/entitlements/allow_unsigned_executable_memory=true
+codesign/entitlements/disable_library_validation=true
+notarization/notarization=0
+binary_format/architecture="universal"
+ssh_remote_deploy/enabled=false
+
+[preset.2]
+
+name="Linux"
+platform="Linux"
+runnable=true
+advanced_options=false
+dedicated_server=false
+custom_features=""
+export_filter="all_resources"
+include_filter="*.json"
+exclude_filter=""
+export_path="../build/VioletVaults-linux/VioletVaults.x86_64"
+encryption_include_filters=""
+encryption_exclude_filters=""
+encrypt_pck=false
+encrypt_directory=false
+script_export_mode=2
+
+[preset.2.options]
+
+custom_template/debug=""
+custom_template/release=""
+debug/export_console_wrapper=1
+binary_format/embed_pck=true
+texture_format/s3tc_bptc=true
+texture_format/etc2_astc=false
+shader_baker/enabled=false
+binary_format/architecture="x86_64"
+ssh_remote_deploy/enabled=false

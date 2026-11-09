@@ -41,7 +41,7 @@ public partial class Scoreboard : Control
     public override void _Draw()
     {
         if (_view.Results is not { } results) return;
-        var font = ThemeDB.FallbackFont;
+        var font = UiFonts.Regular;
         var screen = GetViewportRect().Size;
         float fade = (float)Math.Min(1, _age / 0.6);
 
@@ -79,7 +79,7 @@ public partial class Scoreboard : Control
             rank++;
         }
 
-        var hint = _isHost ? "Enter: play again   ·   Esc: leave" : "Waiting for the host…   ·   Esc: leave";
+        var hint = _isHost ? "Enter: play again   ·   Esc: menu" : "Waiting for the host…   ·   Esc: menu";
         DrawString(font, new Vector2(panel.Position.X, panel.End.Y + 16), hint, HorizontalAlignment.Center, panel.Size.X, 8, Palette.Dim);
     }
 }

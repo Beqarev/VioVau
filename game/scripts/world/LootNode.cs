@@ -28,8 +28,8 @@ public partial class LootNode : Node2D
         {
             if (_highlighted == value) return;
             _highlighted = value;
-            ZIndex = value ? 25 : 5; // tooltips above players
             QueueRedraw();
+            _tooltip?.QueueRedraw();
         }
     }
 
@@ -48,8 +48,18 @@ public partial class LootNode : Node2D
 
     private PointLight2D? _glow;
 
+    /// <summary>
+    /// Highlight brackets and labels live on their own layer above players and enemies, so the item itself
+    /// stays at floor level (players walk in front of lecterns and chests) while its tooltip is never covered.
+    /// </summary>
+    private Node2D? _tooltip;
+
     public override void _Ready()
     {
+        _tooltip = new Node2D { Name = "Tooltip", ZIndex = 20, Material = Lights.Unshaded };
+        _tooltip.Draw += () => DrawTooltip(_tooltip);
+        AddChild(_tooltip);
+
         // Treasure that matters glows (white = value).
         _glow = Item.Kind switch
         {
@@ -112,11 +122,6 @@ public partial class LootNode : Node2D
         var size = texture.GetSize();
         DrawTexture(texture, new Vector2(-size.X / 2f, -size.Y + 4), Item.Claimed ? new Color(1, 1, 1, 0.75f) : Colors.White);
 
-        if (_highlighted && !Item.Claimed)
-        {
-            DrawBrackets(new Rect2(-10, -size.Y + 6, 20, size.Y - 1));
-            DrawString(ThemeDB.FallbackFont, new Vector2(-12, -size.Y + 2), $"{Item.Points}p", HorizontalAlignment.Center, 24, 8, Palette.White);
-        }
     }
 
     private void DrawKey()
@@ -160,13 +165,6 @@ public partial class LootNode : Node2D
             DrawRect(new Rect2(-5, -12 + bob, 10, 6), Palette.White);
         }
 
-        if (_highlighted)
-        {
-            DrawBrackets(new Rect2(-10, -24, 20, 28));
-            DrawRect(new Rect2(-46, -44, 92, 18), new Color(Palette.Void, 0.9f));
-            DrawString(ThemeDB.FallbackFont, new Vector2(-45, -36), $"RELIC  ·  {Item.Points}p", HorizontalAlignment.Center, 90, 8, Palette.White);
-            DrawString(ThemeDB.FallbackFont, new Vector2(-45, -28), "very loud · carry one", HorizontalAlignment.Center, 90, 8, Palette.Dim);
-        }
     }
 
     /// <summary>A fallen player's sack: everything they carried, for whoever gets there first.</summary>
@@ -184,12 +182,6 @@ public partial class LootNode : Node2D
         float glint = 0.6f + 0.4f * Mathf.Sin((float)_time * 4f);
         DrawRect(new Rect2(1, -5, 1, 1), new Color(Palette.White, glint));
 
-        if (_highlighted)
-        {
-            DrawBrackets(new Rect2(-7, -11, 14, 13));
-            var label = Item.Keys > 0 ? $"{Item.Points}p  K{Item.Keys}" : $"{Item.Points}p";
-            DrawString(ThemeDB.FallbackFont, new Vector2(-20, -14), label, HorizontalAlignment.Center, 40, 8, Palette.White);
-        }
     }
 
     /// <summary>A card on a lectern (Library) or pedestal (Merchant, with a price tag).</summary>
@@ -202,34 +194,92 @@ public partial class LootNode : Node2D
         if (Item.Claimed) return;
 
         var color = _card is null ? Palette.Accent : CardStyle.CategoryColor(_card.Category);
-        var card = new Rect2(-5, -15, 10, 13);
+        var card = new Rect2(-6, -18, 12, 16);
         DrawRect(card, Palette.Void);
         DrawRect(card.Grow(-1), Palette.Floor);
-        DrawRect(new Rect2(card.Position + Vector2.One, new Vector2(8, 2)), color);
+        if (_card is not null && CardArt.Get(_card.Id) is { } art)
+            DrawTextureRect(art, new Rect2(card.Position + new Vector2(2, 2), new Vector2(8, 8)), false);
+        else
+            DrawRect(new Rect2(card.Position + Vector2.One, new Vector2(10, 2)), color);
         DrawRect(card, _card is null ? Palette.Wall : CardStyle.RarityColor(_card.Rarity), filled: false, width: 1f);
 
-        var font = ThemeDB.FallbackFont;
+        var font = UiFonts.Regular;
         if (Item.Price > 0)
             DrawString(font, new Vector2(-12, 14), $"{Item.Price}p", HorizontalAlignment.Center, 24, 8, Palette.White);
 
-        if (_highlighted && _card is not null)
+    }
+
+    // ── Tooltip layer ───────────────────────────────────────────────────────
+
+    private void DrawTooltip(CanvasItem t)
+    {
+        if (!_highlighted || Item.Claimed) return;
+        var font = UiFonts.Regular;
+
+        switch (Item.Kind)
         {
-            DrawBrackets(new Rect2(-8, -18, 16, 22));
-            var title = Item.Price > 0 ? $"{_card.Name}  ·  {Item.Price}p" : $"{_card.Name}  ·  free";
-            DrawRect(new Rect2(-62, -46, 124, 26), new Color(Palette.Void, 0.9f));
-            DrawString(font, new Vector2(-60, -37), title, HorizontalAlignment.Center, 120, 8, color);
-            DrawMultilineString(font, new Vector2(-60, -28), _card.Text, HorizontalAlignment.Center, 120, 8, 2, Palette.White);
+            case LootKind.Chest:
+                var size = (Item.Claimed ? _open : _closed)?.GetSize() ?? new Vector2(16, 12);
+                DrawBrackets(t, new Rect2(-10, -size.Y + 6, 20, size.Y - 1));
+                Panel(t, font, -size.Y - 4, [($"{Item.Points}p", Palette.White)]);
+                break;
+
+            case LootKind.Bag:
+                DrawBrackets(t, new Rect2(-7, -11, 14, 13));
+                Panel(t, font, -16, [(Item.Keys > 0 ? $"{Item.Points}p  K{Item.Keys}" : $"{Item.Points}p", Palette.White)]);
+                break;
+
+            case LootKind.Relic:
+                DrawBrackets(t, new Rect2(-10, -24, 20, 28));
+                Panel(t, font, -28, [($"RELIC  {Item.Points}p", Palette.White), ("very loud  ·  carry one", Palette.Dim)]);
+                break;
+
+            case LootKind.Card when _card is not null:
+                DrawBrackets(t, new Rect2(-8, -18, 16, 22));
+                var title = Item.Price > 0 ? $"{_card.Name}  ·  {Item.Price}p" : $"{_card.Name}  ·  free";
+                Panel(t, font, -22, [(title, CardStyle.CategoryColor(_card.Category)), .. Wrap(font, _card.Text, 150).Select(l => (l, Palette.White))]);
+                break;
         }
     }
 
-    private void DrawBrackets(Rect2 r)
+    /// <summary>A dark panel sized to its lines, bottom edge at <paramref name="bottom"/>, centred on the item.</summary>
+    private static void Panel(CanvasItem t, Font font, float bottom, IReadOnlyList<(string Text, Color Color)> lines)
+    {
+        const int size = 8;
+        const float lineHeight = 9, pad = 3;
+        float width = lines.Max(l => font.GetStringSize(l.Text, HorizontalAlignment.Left, -1, size).X) + pad * 2;
+        var rect = new Rect2(-width / 2f, bottom - lines.Count * lineHeight - pad * 2 + 2, width, lines.Count * lineHeight + pad * 2 - 2);
+        t.DrawRect(rect, new Color(Palette.Void, 0.9f));
+        for (int i = 0; i < lines.Count; i++)
+            t.DrawString(font, new Vector2(rect.Position.X, rect.Position.Y + pad + 7 + i * lineHeight), lines[i].Text,
+                HorizontalAlignment.Center, rect.Size.X, size, lines[i].Color);
+    }
+
+    /// <summary>Greedy word wrap by measured width.</summary>
+    private static IEnumerable<string> Wrap(Font font, string text, float maxWidth)
+    {
+        var line = "";
+        foreach (var word in text.Split(' '))
+        {
+            var candidate = line.Length == 0 ? word : $"{line} {word}";
+            if (line.Length > 0 && font.GetStringSize(candidate, HorizontalAlignment.Left, -1, 8).X > maxWidth)
+            {
+                yield return line;
+                line = word;
+            }
+            else line = candidate;
+        }
+        if (line.Length > 0) yield return line;
+    }
+
+    private static void DrawBrackets(CanvasItem t, Rect2 r)
     {
         const float l = 3;
         var c = Palette.White;
         foreach (var (corner, dx, dy) in new[] { (r.Position, 1, 1), (new Vector2(r.End.X, r.Position.Y), -1, 1), (new Vector2(r.Position.X, r.End.Y), 1, -1), (r.End, -1, -1) })
         {
-            DrawLine(corner, corner + new Vector2(dx * l, 0), c);
-            DrawLine(corner, corner + new Vector2(0, dy * l), c);
+            t.DrawLine(corner, corner + new Vector2(dx * l, 0), c);
+            t.DrawLine(corner, corner + new Vector2(0, dy * l), c);
         }
     }
 

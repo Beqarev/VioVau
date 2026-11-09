@@ -36,6 +36,7 @@ public partial class PlayerCharacter : CharacterBody2D
     private PointLight2D _lantern = null!;
     private CpuParticles2D _dust = null!;
     private double _flicker;
+    private double _footstepTimer;
 
     public PlayerId Id { get; private set; }
     public string DisplayName { get; private set; } = "";
@@ -141,6 +142,14 @@ public partial class PlayerCharacter : CharacterBody2D
     {
         if (Device is not null)
         {
+            // Online pause freezes input without pausing the host simulation.
+            if (UI.PauseMenu.Instance?.IsOpen == true)
+            {
+                Velocity = Vector2.Zero;
+                IsSprinting = false;
+                return;
+            }
+
             var move = Device.ReadMove();
             if (move.LengthSquared() > 1f) move = move.Normalized();
             bool sprintHeld = Device.ReadSprint() && !IsDowned;
@@ -152,6 +161,7 @@ public partial class PlayerCharacter : CharacterBody2D
             }
             MoveAndSlide();
             IsSprinting = sprintHeld && GetRealVelocity().Length() > WalkSpeed * 0.5f;
+            TickFootsteps(delta);
 
             bool interacting = Device.ReadInteract() && !IsDowned;
             if (interacting && !_wasInteracting) InteractPressed?.Invoke(this);
@@ -216,6 +226,20 @@ public partial class PlayerCharacter : CharacterBody2D
     }
 
     public void ShowHurt(double seconds) => _hurtTime = seconds;
+
+    private void TickFootsteps(double delta)
+    {
+        if (!IsActive || GetRealVelocity().Length() < 20f)
+        {
+            _footstepTimer = 0;
+            return;
+        }
+        _footstepTimer -= delta;
+        if (_footstepTimer > 0) return;
+        // Sparse cadence — soft dungeon thuds, not a machine-gun of steps.
+        _footstepTimer = IsSprinting ? 0.38 : IsDowned ? 0.75 : 0.52;
+        Audio.Instance?.PlayFootstep(IsSprinting, GlobalPosition, this);
+    }
 
     private float _reviveProgress;
 

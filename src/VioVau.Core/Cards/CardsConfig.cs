@@ -82,6 +82,9 @@ public sealed record CardDefinition
 {
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
+
+    /// <summary>Optional shorter name for tight spaces (hand cards); defaults to <see cref="Name"/>.</summary>
+    public string? ShortName { get; init; }
     public CardCategory Category { get; init; }
     public CardRarity Rarity { get; init; } = CardRarity.Common;
 

@@ -17,6 +17,8 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+GameSettings="*res://scripts/settings/GameSettings.cs"
+Audio="*res://scripts/audio/Audio.cs"
 NetSession="*res://scripts/net/NetSession.cs"
 
 [display]
@@ -36,6 +38,7 @@ project/solution_directory="../"
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0
+textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0.051, 0.027, 0.086, 1)

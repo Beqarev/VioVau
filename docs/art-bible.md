@@ -144,7 +144,9 @@ Original 2D prompt (unused):
 [STYLE BLOCK] Three legendary relic items, 16x16 each, glowing bright white with violet accents: an ornate crown, a jeweled chalice, a crystal skull. Each on a small dark pedestal.
 ```
 
-### Batch 3 — Cards & UI (M3)
+### Batch 3 — Cards & UI (M3) ✅ (Look pass 2)
+
+In-game: `tools/generate_card_art.py` → `assets/raw/cards/` → ItemImporter → `assets/sprites/cards/` (32×32). HUD via `CardArt` / `HandHud`. UI font: OFL Silkscreen in `assets/fonts/`.
 
 **C1. Card frame**
 ```
@@ -185,7 +187,7 @@ Original 2D prompt (unused):
 ```
 (Lights, darkness, flicker and screen shake are done in code.)
 
-### Batch 5 — Music (Music Studio)
+### Batch 5 — Music ✅ (procedural; regenerate with `python3 tools/generate_audio.py`)
 
 Shared music style: `Dark ambient dungeon soundtrack, slow and tense, mysterious, low drones, distant choir pads, music box and glass harmonica motifs, sparse percussion, no vocals with words, loopable, for a stealth heist dungeon game.`
 

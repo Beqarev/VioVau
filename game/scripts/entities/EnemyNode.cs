@@ -50,6 +50,7 @@ public partial class EnemyNode : CharacterBody2D
     private Vector2 _remoteTarget;
     private int _facing;
     private bool _dying;
+    private Mode _audioState;
     private PointLight2D _eyes = null!;
 
     public EnemyId Id { get; private set; }
@@ -146,6 +147,7 @@ public partial class EnemyNode : CharacterBody2D
         {
             Position = Position.DistanceTo(_remoteTarget) > 96 ? _remoteTarget : Position.Lerp(_remoteTarget, 1f - Mathf.Exp(-15f * dt));
             Animate(Vector2.Zero);
+            EmitAiSounds(); // from the synced state, so clients hear Sentries too
             return;
         }
 
@@ -175,7 +177,23 @@ public partial class EnemyNode : CharacterBody2D
 
         MoveAndSlide();
         Animate(Velocity);
+        EmitAiSounds();
         QueueRedraw();
+    }
+
+    /// <summary>
+    /// Sounds from state changes only (every machine sees the same states): starting a chase = "noticed you",
+    /// entering the wind-up = the chop is coming. Runs on the host and on clients.
+    /// </summary>
+    private void EmitAiSounds()
+    {
+        bool chasingNow = State is Mode.Run or Mode.Windup;
+        bool chasingBefore = _audioState is Mode.Run or Mode.Windup;
+        if (chasingNow && !chasingBefore)
+            Audio.Instance?.PlaySfxAt(this, "sentry_notice", GlobalPosition, volume: 0.85f);
+        if (State == Mode.Windup && _audioState != Mode.Windup)
+            Audio.Instance?.PlaySfxAt(this, "sentry_windup", GlobalPosition, volume: 1f);
+        _audioState = State;
     }
 
     private void Think(float dt)
@@ -338,7 +356,7 @@ public partial class EnemyNode : CharacterBody2D
         }
         else if (State == Mode.Windup)
         {
-            DrawString(ThemeDB.FallbackFont, new Vector2(-2, -26 * scale), "!", HorizontalAlignment.Left, -1, 8, Palette.White);
+            DrawString(UiFonts.Regular, new Vector2(-2, -26 * scale), "!", HorizontalAlignment.Left, -1, 8, Palette.White);
         }
     }
 }

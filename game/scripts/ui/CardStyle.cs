@@ -3,7 +3,7 @@ using VioVau.Core.Cards;
 
 namespace VioVau.Game.UI;
 
-/// <summary>How cards look until real card art exists: a category color and a short name.</summary>
+/// <summary>Category/rarity colours and short names for HUD cards (art lives in <see cref="CardArt"/>).</summary>
 public static class CardStyle
 {
     public static Color CategoryColor(CardCategory category) => category switch
@@ -22,6 +22,19 @@ public static class CardStyle
         CardRarity.Rare => Palette.Accent,
         _ => Palette.Wall,
     };
+
+    /// <summary>
+    /// The longest form of the card's name that fits <paramref name="maxWidth"/> in this font:
+    /// full name, then its short name, then a trimmed short name.
+    /// </summary>
+    public static string FitName(Font font, CardDefinition card, float maxWidth, int size)
+    {
+        bool Fits(string s) => font.GetStringSize(s, HorizontalAlignment.Left, -1, size).X <= maxWidth;
+        if (Fits(card.Name)) return card.Name;
+        var shorter = card.ShortName ?? card.Name;
+        while (shorter.Length > 2 && !Fits(shorter)) shorter = shorter[..^1];
+        return shorter;
+    }
 
     /// <summary>A name that fits in <paramref name="maxChars"/>: "Shared Fortune" → "Shared Fort.".</summary>
     public static string ShortName(string name, int maxChars) =>
