@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Blocks a commit when the build is broken or tests fail. Skip once with: git commit --no-verify
+# Only runs when C#/project/data files are staged.
+if git diff --cached --name-only | grep -qE '\.(cs|csproj|props|sln|json)$'; then
+  "$(git rev-parse --show-toplevel)/tools/check.sh" || { echo "pre-commit: fix the above (or git commit --no-verify)"; exit 1; }
+fi

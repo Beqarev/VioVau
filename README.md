@@ -17,15 +17,20 @@ A 1–4 player semi-cooperative, real-time dungeon extraction roguelike with car
 | `src/VioVau.Core` | Game rules in plain C#. No Godot references. |
 | `src/VioVau.Core.Tests` | xUnit tests for Core. |
 | `game/` | Godot project (presentation, physics, input, networking). Open `game/project.godot`. |
-| `game/data/` | JSON game data (dungeon, later cards/enemies…). |
-| `docs/` | Design and architecture. |
+| `game/data/` | JSON game data (dungeon, threat, cards, enemies). |
+| `docs/` | `STATUS.md` (where we are), design, architecture, art bible, `decisions/`, `workflows/`. |
+| `tools/` | Scripts: `check.sh`, `playtest.sh`, `export.sh`, asset generators (see `tools/README.md`). |
 
 ## Commands
 
 ```bash
-dotnet build VioVau.sln
-dotnet test VioVau.sln
+tools/check.sh            # build + tests, quiet summary
+tools/playtest.sh online  # automated host + client play-test (solo | couch | brutal, --shots)
 ```
+
+One-time: `git config core.hooksPath tools/hooks` (runs the checks before each commit).
+
+AI agents: start at `AGENTS.md` (Claude Code reads it through `CLAUDE.md`).
 
 Open `game/project.godot` in Godot and press F5 to run.
 
